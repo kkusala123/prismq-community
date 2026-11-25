@@ -1,0 +1,15 @@
+/node_modules/
+/dist/
+/data/
+.env
+.env.local
+.env.*.local
+*.log
+*.tar.gz
+.DS_Store
+Thumbs.db
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+/releases/

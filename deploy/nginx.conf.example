@@ -1,0 +1,44 @@
+server {
+    listen 80;
+    server_name prismq.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name prismq.example.com;
+
+    # SSL 证书路径（OpenResty / 1Panel / Certbot 签发证书）
+    # ssl_certificate /etc/letsencrypt/live/prismq.example.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/prismq.example.com/privkey.pem;
+
+    # 与后端 multer 30MB 文件上限对齐（含表单开销）
+    client_max_body_size 35m;
+
+    # AI 流式导题 SSE 专线：关闭代理缓冲与长空闲断流
+    location = /api/ai/extract-stream {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_read_timeout 300s;
+    }
+}
