@@ -11,7 +11,6 @@ import {
   LogOut,
   Download,
   Smartphone,
-  GraduationCap,
   Moon,
   Sun,
   ShieldCheck,
@@ -19,6 +18,7 @@ import {
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useTheme } from '../lib/theme';
+import { PrismQLogo } from './PrismQLogo';
 import { Badge, Button } from './ui';
 
 const DESKTOP_NAV = [
@@ -106,15 +106,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   return (
     <div className="min-h-[100dvh] bg-[#F7F8FA] text-[#1E293B]">
-      {/* 考试宝风格纯白双行顶部导航壳层 */}
+      {/* 棱题 · PrismQ 纯白双行顶部导航壳层 */}
       <header className="no-print sticky top-0 z-30 border-b border-[#E4E7ED] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.03)]">
         {/* 第一行：Logo + 融合搜索框 + 账号与快捷按钮 */}
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-2 px-3 py-2 sm:gap-4 sm:px-6 sm:py-2.5">
           {/* Brand Logo */}
           <Link to="/" className="flex shrink-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white shadow-sm">
-              <GraduationCap className="h-5 w-5" />
-            </div>
+            <PrismQLogo className="h-9 w-9 shrink-0 shadow-sm" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-base font-extrabold tracking-tight text-[#303133] sm:text-lg">
@@ -130,7 +128,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
           </Link>
 
-          {/* 中央融合搜索栏（仿考试宝：上方“试题/题库”切换 + 蓝框 + 实心蓝搜索按钮） */}
+          {/* 中央融合搜索栏（上方“试题/题库”切换 + 蓝框 + 实心蓝搜索按钮） */}
           <form
             onSubmit={handleQuickSearch}
             className="hidden flex-1 max-w-xl flex-col md:flex"

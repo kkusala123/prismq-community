@@ -1,0 +1,296 @@
+<wxs module="gesture" src="./swipe.wxs"></wxs>
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="practice-page">
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在加载题目</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="retry">重新加载</button>
+    </view>
+
+    <view wx:elif="{{total === 0}}" class="state">
+        <text class="state-icon">○</text>
+        <text class="state-title">这里还没有题目</text>
+        <text class="state-desc">该模式下列表为空，换个模式或先导入题库</text>
+        <button class="btn btn-outline btn-sm mt24" bindtap="goBack">返回</button>
+    </view>
+
+    <block wx:else>
+        <!-- 顶部进度与难度排序条 -->
+        <view class="topbar">
+            <view class="topbar-head">
+                <text class="mode-label">{{modeLabel}}</text>
+                <text class="progress-text">{{progressText}}</text>
+            </view>
+            <view class="progress-track topbar-track">
+                <view class="progress-fill" style="width: {{progressPercent}}%"></view>
+            </view>
+            <view class="sort-bar">
+                <block wx:if="{{mode === 'sequential' || mode === 'difficulty_asc' || mode === 'difficulty_desc'}}">
+                    <view class="sort-pill {{sortBy === 'default' && !shuffleQuestions ? 'sort-pill-active' : ''}}" data-sort="default" bindtap="changeSortBy">默认</view>
+                    <view class="sort-pill {{sortBy === 'difficulty_asc' && !shuffleQuestions ? 'sort-pill-active' : ''}}" data-sort="difficulty_asc" bindtap="changeSortBy">由易到难</view>
+                    <view class="sort-pill {{sortBy === 'difficulty_desc' && !shuffleQuestions ? 'sort-pill-active' : ''}}" data-sort="difficulty_desc" bindtap="changeSortBy">由难到易</view>
+                </block>
+                <view class="sort-pill {{shuffleQuestions ? 'sort-pill-active' : ''}}" bindtap="toggleShuffle">{{shuffleQuestions ? '乱序中' : '乱序出题'}}</view>
+                <view wx:if="{{shuffleQuestions}}" class="sort-pill" bindtap="reshuffleNow">重新洗牌</view>
+                <view class="sort-pill sort-pill-reset" bindtap="confirmResetProgress">一键重刷</view>
+            </view>
+        </view>
+
+        <view
+            class="swipe-wrap"
+            data-index="{{index}}"
+            data-total="{{total}}"
+            data-width="{{stageWidth}}"
+            bindtouchstart="{{gesture.touchstart}}"
+            bindtouchmove="{{gesture.touchmove}}"
+            bindtouchend="{{gesture.touchend}}"
+            bindtouchcancel="{{gesture.touchcancel}}"
+        >
+        <view class="swipe-inner {{slideDir ? 'slide-' + slideDir : ''}}">
+        <!-- 题干 -->
+        <view class="card question-card">
+            <view class="q-head">
+                <text class="tag tag-brand">{{typeLabel}}</text>
+                <text wx:if="{{current.type === 'multiple'}}" class="q-tip">（多选）</text>
+                <text wx:if="{{starText}}" class="q-tip">{{starText}}</text>
+                <view class="flex1"></view>
+                <view class="fav-btn {{isFavorite ? 'fav-on' : ''}}" bindtap="toggleFavorite">
+                    <text class="fav-icon">{{isFavorite ? '★' : '☆'}}</text>
+                    <text class="fav-text">{{isFavorite ? '已收藏' : '收藏'}}</text>
+                </view>
+            </view>
+
+            <view class="rich-wrap q-stem">
+                <block wx:for="{{stemSegments}}" wx:key="index">
+                    <text wx:if="{{item.type === 'text'}}" class="rich-text" user-select="true">{{item.content}}</text>
+                    <view wx:else class="code-card" catchtouchmove="noop">
+                        <view class="code-card-head">
+                            <text class="code-lang">{{item.lang}}</text>
+                            <text class="code-copy" data-code="{{item.content}}" bindtap="copyCodeBlock">复制</text>
+                        </view>
+                        <scroll-view class="code-scroll" scroll-x="true">
+                            <text class="code-pre" user-select="true">{{item.content}}</text>
+                        </scroll-view>
+                    </view>
+                </block>
+            </view>
+
+            <!-- 选择题选项 -->
+            <view wx:if="{{current.type !== 'fill' && current.type !== 'short'}}" class="options">
+                <view
+                    class="option {{item.state === 'selected' ? 'opt-selected' : ''}} {{item.state === 'correct' ? 'opt-correct' : ''}} {{item.state === 'wrong' ? 'opt-wrong' : ''}}"
+                    wx:for="{{currentOptions}}"
+                    wx:key="key"
+                    data-key="{{item.key}}"
+                    bindtap="tapOption"
+                >
+                    <view class="opt-key {{item.state === 'correct' ? 'opt-key-correct' : ''}} {{item.state === 'wrong' ? 'opt-key-wrong' : ''}} {{item.state === 'selected' ? 'opt-key-selected' : ''}}">{{item.key}}</view>
+                    <text class="opt-content">{{item.content}}</text>
+                    <text wx:if="{{item.state === 'correct'}}" class="opt-mark mark-right">✓</text>
+                    <text wx:if="{{item.state === 'wrong'}}" class="opt-mark mark-wrong">✕</text>
+                </view>
+            </view>
+
+            <!-- 填空题 -->
+            <view wx:if="{{current.type === 'fill'}}" class="fill-area">
+                <input
+                    class="fill-input"
+                    value="{{currentAnswer}}"
+                    bindinput="onFillInput"
+                    disabled="{{showAnswer}}"
+                    placeholder="请输入你的答案"
+                    placeholder-class="ph"
+                    confirm-type="done"
+                    data-no-swipe="1"
+                />
+                <button wx:if="{{!showAnswer}}" class="btn btn-primary btn-block mt16" bindtap="submitCurrent" loading="{{submitting}}">提交答案</button>
+            </view>
+
+            <!-- 简答题 -->
+            <view wx:if="{{current.type === 'short'}}" class="fill-area">
+                <textarea class="short-input" value="{{currentAnswer}}" bindinput="onFillInput" disabled="{{showAnswer}}" placeholder="请输入你的作答（简答题由组织者人工评分）" placeholder-class="ph" data-no-swipe="1"></textarea>
+                <button wx:if="{{!showAnswer}}" class="btn btn-primary btn-block mt16" bindtap="submitCurrent" loading="{{submitting}}">提交作答</button>
+            </view>
+
+            <!-- 多选提交 -->
+            <button
+                wx:if="{{current.type === 'multiple' && !showAnswer}}"
+                class="btn btn-primary btn-block multi-submit"
+                bindtap="submitCurrent"
+                loading="{{submitting}}"
+            >提交答案</button>
+        </view>
+
+        <!-- 解析 -->
+        <view wx:if="{{showAnswer}}" class="card answer-card">
+            <view class="answer-head">
+                <view wx:if="{{currentJudged}}" class="verdict {{currentJudged.isCorrect ? 'verdict-right' : 'verdict-wrong'}}">
+                    {{currentJudged.isCorrect ? '回答正确' : '回答错误'}}
+                </view>
+                <view wx:else class="verdict verdict-recite">参考答案</view>
+            </view>
+
+            <view class="answer-line">
+                <text class="answer-label">正确答案</text>
+                <text class="answer-value">{{currentJudged ? currentJudged.standardAnswer : current.answer}}</text>
+            </view>
+
+            <view class="answer-line" wx:if="{{currentAnswer}}">
+                <text class="answer-label">你的作答</text>
+                <text class="answer-value answer-user">{{currentAnswer}}</text>
+            </view>
+
+            <view class="explain-block">
+                <text class="explain-label">解析</text>
+                <view class="rich-wrap explain-text">
+                    <block wx:for="{{explainSegments}}" wx:key="index">
+                        <text wx:if="{{item.type === 'text'}}" class="rich-text" user-select="true">{{item.content}}</text>
+                        <view wx:else class="code-card" catchtouchmove="noop">
+                            <view class="code-card-head">
+                                <text class="code-lang">{{item.lang}}</text>
+                                <text class="code-copy" data-code="{{item.content}}" bindtap="copyCodeBlock">复制</text>
+                            </view>
+                            <scroll-view class="code-scroll" scroll-x="true">
+                                <text class="code-pre" user-select="true">{{item.content}}</text>
+                            </scroll-view>
+                        </view>
+                    </block>
+                </view>
+            </view>
+
+            <view class="ai-actions" data-no-swipe="1">
+                <button
+                    class="btn btn-outline btn-sm ai-btn"
+                    loading="{{aiLoading}}"
+                    disabled="{{aiLoading}}"
+                    data-save="0"
+                    bindtap="askAiExplain"
+                >{{aiLoading ? 'AI 解析生成中…' : (currentAiExplain ? '重新 AI 一键解析' : 'AI 一键解析')}}</button>
+                <button
+                    wx:if="{{currentAiExplain}}"
+                    class="btn btn-ghost btn-sm ai-btn"
+                    loading="{{aiLoading}}"
+                    disabled="{{aiLoading || aiSaved}}"
+                    data-save="1"
+                    bindtap="askAiExplain"
+                >{{aiSaved ? '已写入题库' : '写入题库解析'}}</button>
+            </view>
+
+            <view wx:if="{{aiError}}" class="ai-error">{{aiError}}</view>
+
+            <view wx:if="{{currentAiExplain}}" class="ai-box" data-no-swipe="1">
+                <text class="ai-box-head">AI 深度解析</text>
+                <view wx:if="{{currentAiExplain.keyPoint}}" class="ai-field">
+                    <text class="ai-field-lbl">核心考点：</text>
+                    <text class="ai-field-val" user-select="true">{{currentAiExplain.keyPoint}}</text>
+                </view>
+                <view wx:if="{{currentAiExplain.analysis}}" class="ai-field">
+                    <text class="ai-field-lbl">深度解析：</text>
+                    <view class="rich-wrap explain-text">
+                        <block wx:for="{{currentAiAnalysisSegments}}" wx:for-item="seg" wx:key="index">
+                            <text wx:if="{{seg.type === 'text'}}" class="rich-text" user-select="true">{{seg.content}}</text>
+                            <view wx:else class="code-card" catchtouchmove="noop">
+                                <view class="code-card-head">
+                                    <text class="code-lang">{{seg.lang}}</text>
+                                    <text class="code-copy" data-code="{{seg.content}}" bindtap="copyCodeBlock">复制</text>
+                                </view>
+                                <scroll-view class="code-scroll" scroll-x="true">
+                                    <text class="code-pre" user-select="true">{{seg.content}}</text>
+                                </scroll-view>
+                            </view>
+                        </block>
+                    </view>
+                </view>
+                <view wx:if="{{currentAiExplain.mnemonic}}" class="ai-mnemonic">
+                    <text class="ai-field-lbl">记忆口诀：</text>
+                    <text class="ai-field-val" user-select="true">{{currentAiExplain.mnemonic}}</text>
+                </view>
+            </view>
+        </view>
+        </view>
+        </view>
+
+        <!-- 底部操作 -->
+        <view class="bottom-bar practice-bar">
+            <button class="btn btn-plain bar-btn" bindtap="prevQuestion">上一题</button>
+            <button class="btn btn-ghost bar-btn" bindtap="openCard">
+                答题卡 {{answeredCount}}/{{total}}
+            </button>
+            <button class="btn btn-primary bar-btn" bindtap="nextQuestion">
+                {{index >= total - 1 ? '完成' : '下一题'}}
+            </button>
+        </view>
+
+        <!-- 答题卡弹层 -->
+        <view wx:if="{{showCard}}" class="mask" bindtap="closeCard">
+            <view class="card-panel" catchtap="noop">
+                <view class="card-panel-head">
+                    <text class="title-md">答题卡</text>
+                    <text class="card-close" bindtap="closeCard">✕</text>
+                </view>
+
+                <view class="card-legend">
+                    <view class="legend-item"><view class="legend-dot dot-right"></view><text class="legend-text">答对 {{correctCount}}</text></view>
+                    <view class="legend-item"><view class="legend-dot dot-wrong"></view><text class="legend-text">答错 {{answeredCount - correctCount}}</text></view>
+                    <view class="legend-item"><view class="legend-dot dot-todo"></view><text class="legend-text">未答 {{total - answeredCount}}</text></view>
+                </view>
+
+                <scroll-view class="card-grid-scroll" scroll-y>
+                    <view class="card-grid">
+                        <view
+                            class="card-cell cell-{{item.state}} {{item.current ? 'cell-current' : ''}}"
+                            wx:for="{{cardItems}}"
+                            wx:key="no"
+                            data-index="{{item.index}}"
+                            bindtap="jumpTo"
+                        >{{item.no}}</view>
+                    </view>
+                </scroll-view>
+
+                <button class="btn btn-primary btn-block mt32" bindtap="finish">交卷并查看小结</button>
+            </view>
+        </view>
+
+        <!-- 答完鼓励弹窗 & 重复答题入口 -->
+        <view wx:if="{{showFinishModal}}" class="mask" bindtap="closeFinishModal">
+            <view class="finish-modal" catchtap="noop">
+                <text class="finish-badge">本轮完成 · 进度已自动清空</text>
+                <text class="finish-title">{{finishTitle}}</text>
+                <text class="finish-desc">{{finishDesc}}</text>
+
+                <view class="finish-stats">
+                    <view>
+                        <text class="finish-stat-val">{{finishAnswered}}/{{finishTotal}}</text>
+                        <text class="finish-stat-lbl">已答题数</text>
+                    </view>
+                    <view>
+                        <text class="finish-stat-val">{{finishCorrect}}</text>
+                        <text class="finish-stat-lbl">答对题数</text>
+                    </view>
+                    <view>
+                        <text class="finish-stat-val">{{finishAccuracy}}%</text>
+                        <text class="finish-stat-lbl">正确率</text>
+                    </view>
+                </view>
+
+                <view class="finish-actions">
+                    <button class="btn btn-outline finish-btn" bindtap="confirmFinishBack">返回题库</button>
+                    <button class="btn btn-outline finish-btn" bindtap="reshuffleNow">乱序重刷</button>
+                    <button class="btn btn-primary finish-btn" bindtap="repeatPractice">立即重刷</button>
+                </view>
+            </view>
+        </view>
+    </block>
+</view>
+
+</block>

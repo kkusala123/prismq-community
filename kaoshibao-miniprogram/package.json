@@ -1,0 +1,6 @@
+{
+  "name": "prismq-miniprogram",
+  "version": "1.0.0",
+  "private": true,
+  "description": "棱题 (PrismQ) 微信小程序 - 服务器直连版（REST + JWT，仅连接私有部署后端）"
+}

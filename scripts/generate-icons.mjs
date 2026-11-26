@@ -31,92 +31,116 @@ function makeChunk(type, data) {
 
 function insideRoundedRect(x, y, rx, ry, rw, rh, radius) {
   if (x < rx || x >= rx + rw || y < ry || y >= ry + rh) return false;
-  const cx = Math.min(Math.max(x, rx + radius), rx + rw - radius - 1);
-  const cy = Math.min(Math.max(y, ry + radius), ry + rh - radius - 1);
+  const cx = Math.min(Math.max(x, rx + radius), rx + rw - radius);
+  const cy = Math.min(Math.max(y, ry + radius), ry + rh - radius);
   const dx = x - cx;
   const dy = y - cy;
   return dx * dx + dy * dy <= radius * radius;
 }
 
+function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
+  const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+  const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+  const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+function distSegment(px, py, x1, y1, x2, y2) {
+  const vx = x2 - x1;
+  const vy = y2 - y1;
+  const wx = px - x1;
+  const wy = py - y1;
+  const c1 = vx * wx + vy * wy;
+  const c2 = vx * vx + vy * vy;
+  const u = c2 > 0 ? Math.min(1, Math.max(0, c1 / c2)) : 0;
+  return Math.hypot(px - (x1 + u * vx), py - (y1 + u * vy));
+}
+
+function mixColor(bg, fg, alpha) {
+  return [
+    bg[0] * (1 - alpha) + fg[0] * alpha,
+    bg[1] * (1 - alpha) + fg[1] * alpha,
+    bg[2] * (1 - alpha) + fg[2] * alpha,
+  ];
+}
+
+function sampleIconPixel(px, py) {
+  if (!insideRoundedRect(px, py, 0, 0, 512, 512, 116)) {
+    return [0, 0, 0, 0];
+  }
+
+  const t = Math.min(1, Math.max(0, (px + py) / 1024));
+  let rgb;
+  if (t <= 0.52) {
+    const k = t / 0.52;
+    rgb = [15 * (1 - k) + 30 * k, 23 * (1 - k) + 58 * k, 42 * (1 - k) + 138 * k];
+  } else {
+    const k = (t - 0.52) / 0.48;
+    rgb = [30 * (1 - k) + 37 * k, 58 * (1 - k) + 84 * k, 138 * (1 - k) + 168 * k];
+  }
+
+  // 三束折射光谱线
+  if (distSegment(px, py, 274, 224, 408, 196) <= 10) {
+    rgb = [56, 189, 248];
+  } else if (distSegment(px, py, 292, 260, 420, 260) <= 10) {
+    rgb = [52, 211, 153];
+  } else if (distSegment(px, py, 308, 296, 408, 324) <= 10) {
+    rgb = [251, 191, 36];
+  }
+
+  // 棱镜三折面几何体
+  if (pointInTriangle(px, py, 240, 124, 124, 368, 228, 286)) {
+    rgb = mixColor(rgb, [255, 255, 255], 0.97);
+  } else if (pointInTriangle(px, py, 240, 124, 332, 368, 228, 286)) {
+    rgb = mixColor(rgb, [147, 197, 253], 0.92);
+  } else if (pointInTriangle(px, py, 124, 368, 332, 368, 228, 286)) {
+    rgb = mixColor(rgb, [59, 130, 246], 0.96);
+  }
+
+  return [rgb[0], rgb[1], rgb[2], 255];
+}
+
 function renderIconPng(size) {
   const raw = Buffer.alloc(size * (1 + size * 4));
   const scale = size / 512;
+  const offsets = [0.25, 0.75];
 
   for (let y = 0; y < size; y += 1) {
     const rowStart = y * (1 + size * 4);
-    raw[rowStart] = 0; // filter type 0
+    raw[rowStart] = 0;
     for (let x = 0; x < size; x += 1) {
-      const px = x / scale;
-      const py = y / scale;
-      const t = (px + py) / 1024;
-      // 品牌渐变蓝
-      let r = Math.round(47 * (1 - t) + 19 * t);
-      let g = Math.round(130 * (1 - t) + 77 * t);
-      let b = Math.round(255 * (1 - t) + 225 * t);
-      let a = 255;
-
-      // 白色试卷卡片
-      if (insideRoundedRect(px, py, 108, 92, 296, 328, 34)) {
-        r = 252;
-        g = 253;
-        b = 255;
-        if (insideRoundedRect(px, py, 152, 148, 144, 22, 11)) {
-          r = 26;
-          g = 98;
-          b = 245;
-        } else if (insideRoundedRect(px, py, 152, 196, 208, 18, 9)) {
-          r = 148;
-          g = 163;
-          b = 184;
-        } else if (insideRoundedRect(px, py, 152, 236, 184, 18, 9)) {
-          r = 148;
-          g = 163;
-          b = 184;
+      let rSum = 0;
+      let gSum = 0;
+      let bSum = 0;
+      let aSum = 0;
+      for (let sy = 0; sy < 2; sy += 1) {
+        for (let sx = 0; sx < 2; sx += 1) {
+          const [r, g, b, a] = sampleIconPixel((x + offsets[sx]) / scale, (y + offsets[sy]) / scale);
+          rSum += r * (a / 255);
+          gSum += g * (a / 255);
+          bSum += b * (a / 255);
+          aSum += a;
         }
       }
-
-      // 绿色对勾徽章
-      const dx = px - 330;
-      const dy = py - 336;
-      const distSq = dx * dx + dy * dy;
-      if (distSq <= 78 * 78) {
-        r = 16;
-        g = 185;
-        b = 129;
-
-        // 简化对勾线条距离判定
-        const distSeg = (x1, y1, x2, y2) => {
-          const vx = x2 - x1;
-          const vy = y2 - y1;
-          const wx = px - x1;
-          const wy = py - y1;
-          const c1 = vx * wx + vy * wy;
-          const c2 = vx * vx + vy * vy;
-          const u = c2 > 0 ? Math.min(1, Math.max(0, c1 / c2)) : 0;
-          const ix = x1 + u * vx;
-          const iy = y1 + u * vy;
-          return Math.hypot(px - ix, py - iy);
-        };
-        if (distSeg(292, 336, 318, 362) <= 10 || distSeg(318, 362, 370, 306) <= 10) {
-          r = 255;
-          g = 255;
-          b = 255;
-        }
-      }
-
+      const avgA = aSum / 4;
       const offset = rowStart + 1 + x * 4;
-      raw[offset] = r;
-      raw[offset + 1] = g;
-      raw[offset + 2] = b;
-      raw[offset + 3] = a;
+      if (avgA > 0) {
+        const premulDiv = avgA / 255;
+        raw[offset] = Math.round(rSum / 4 / premulDiv);
+        raw[offset + 1] = Math.round(gSum / 4 / premulDiv);
+        raw[offset + 2] = Math.round(bSum / 4 / premulDiv);
+        raw[offset + 3] = Math.round(avgA);
+      }
     }
   }
 
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // RGBA
+  ihdr[8] = 8;
+  ihdr[9] = 6;
   ihdr[10] = 0;
   ihdr[11] = 0;
   ihdr[12] = 0;
@@ -134,4 +158,4 @@ const publicDir = path.resolve(process.cwd(), 'public');
 fs.mkdirSync(publicDir, { recursive: true });
 fs.writeFileSync(path.join(publicDir, 'icon-192.png'), renderIconPng(192));
 fs.writeFileSync(path.join(publicDir, 'icon-512.png'), renderIconPng(512));
-console.log('Generated PWA PNG icons: public/icon-192.png, public/icon-512.png');
+console.log('Generated PrismQ PWA PNG icons: public/icon-192.png, public/icon-512.png');

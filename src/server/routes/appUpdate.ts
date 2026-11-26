@@ -1,17 +1,25 @@
 import fs from 'node:fs';
 import { Router } from 'express';
+import multer from 'multer';
 import type { DbClient } from '../db/client.js';
 import { createAuthMiddlewares } from '../middleware/auth.js';
+import { fixMulterFilename } from './import.js';
 import {
   buildUpdateCheckResponse,
   getAdminUpdateConfigView,
   getStoredUpdateState,
   isReleaseNewer,
+  publishUploadedApk,
   resolveCachedApkPath,
+  scanLocalApkReleases,
   subscribeAppUpdateEvents,
-  syncLatestApkFromGitHub,
   updateAdminUpdateConfig,
 } from '../services/appUpdate.js';
+
+const apkUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 },
+});
 
 export function createAppUpdateRouter(db: DbClient): Router {
   const router = Router();
@@ -93,7 +101,7 @@ export function createAppUpdateRouter(db: DbClient): Router {
       }
       const apkPath = resolveCachedApkPath(state.latest);
       if (!apkPath || !fs.existsSync(apkPath)) {
-        res.status(404).json({ error: 'APK 缓存文件不存在，请管理员重新从 GitHub 同步' });
+        res.status(404).json({ error: '服务端尚未上传 APK 安装包，请管理员在后台上传或放入服务器 updates 目录' });
         return;
       }
 
@@ -149,14 +157,42 @@ export function createAppUpdateRouter(db: DbClient): Router {
     }
   });
 
-  // 管理员：立即从 GitHub 拉取最新 APK 并推送更新通知到所有在线客户端
+  // 管理员：直接上传 APK 安装包到服务器并即时推送到所有在线客户端
+  router.post(
+    '/admin/upload',
+    requireAuth,
+    requireAdmin,
+    apkUpload.single('file'),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          res.status(400).json({ error: '请选择要上传的 .apk 安装包文件' });
+          return;
+        }
+        const originalFileName = fixMulterFilename(req.file.originalname);
+        const result = await publishUploadedApk(db, {
+          buffer: req.file.buffer,
+          originalFileName,
+          versionName: req.body?.versionName ? String(req.body.versionName) : undefined,
+          versionCode: req.body?.versionCode ? Number(req.body.versionCode) : undefined,
+          releaseNotes: req.body?.releaseNotes ? String(req.body.releaseNotes) : undefined,
+          forceUpdate: String(req.body?.forceUpdate || '') === 'true',
+        });
+        res.status(201).json(result);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : '上传 APK 安装包失败' });
+      }
+    }
+  );
+
+  // 管理员：扫描服务器本地 updates 目录并立即向在线客户端推送更新通知
   router.post('/admin/sync', requireAuth, requireAdmin, async (_req, res) => {
     try {
-      const result = await syncLatestApkFromGitHub(db, { forcePush: true });
+      const result = await scanLocalApkReleases(db, { forcePush: true });
       if (!result.ok) {
-        res.status(502).json({
+        res.status(500).json({
           ok: false,
-          error: result.error || '从 GitHub 拉取 APK 失败',
+          error: result.error || '扫描服务器安装包失败',
           latest: result.latest,
         });
         return;
@@ -164,7 +200,7 @@ export function createAppUpdateRouter(db: DbClient): Router {
       res.json(result);
     } catch (err) {
       console.error('[app-update admin sync]', err);
-      res.status(500).json({ error: err instanceof Error ? err.message : '同步 GitHub Release 失败' });
+      res.status(500).json({ error: err instanceof Error ? err.message : '扫描服务器安装包失败' });
     }
   });
 

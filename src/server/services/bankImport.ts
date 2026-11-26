@@ -1,4 +1,5 @@
 import type { DbClient } from '../db/client.js';
+import { normalizeCodeInText } from '../../shared/codeFormatter.js';
 import { normalizeAndValidateDraft } from '../../shared/questionSchema.js';
 
 export interface InvalidImportItem {
@@ -104,6 +105,15 @@ export async function batchInsertQuestionsToBank(
       }
 
       qOrder += 1;
+      const formattedStem = normalizeCodeInText(draft.stem);
+      const formattedOptions = draft.options.map((opt) =>
+        opt.content.includes('```') || opt.content.includes('\n')
+          ? { ...opt, content: normalizeCodeInText(opt.content) }
+          : opt
+      );
+      const formattedExplanation = draft.explanation
+        ? normalizeCodeInText(draft.explanation)
+        : '';
       await tx.query(
         `INSERT INTO questions (bank_id, chapter_id, type, stem, options, answer, explanation, difficulty, tags, sort_order)
          VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10)`,
@@ -111,10 +121,10 @@ export async function batchInsertQuestionsToBank(
           bankId,
           chapterId,
           draft.type,
-          draft.stem,
-          JSON.stringify(draft.options),
+          formattedStem,
+          JSON.stringify(formattedOptions),
           draft.answer,
-          draft.explanation,
+          formattedExplanation,
           draft.difficulty,
           JSON.stringify(draft.tags),
           qOrder,

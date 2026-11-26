@@ -1,0 +1,256 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap detail-wrap">
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在加载题库</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="retry">重新加载</button>
+    </view>
+
+    <block wx:else>
+        <!-- 题库信息 -->
+        <view class="bank-hero">
+            <view class="row">
+                <text class="tag tag-brand">{{bank.category}}</text>
+                <text wx:if="{{isDemo}}" class="tag tag-warning bank-tag-gap">演示数据</text>
+            </view>
+            <text class="bank-name">{{bank.title}}</text>
+            <text class="bank-desc">{{bank.description}}</text>
+
+            <view class="stat-row">
+                <view class="stat-cell">
+                    <text class="stat-value">{{stats.total}}</text>
+                    <text class="stat-label">总题数</text>
+                </view>
+                <view class="stat-cell">
+                    <text class="stat-value stat-brand">{{stats.practiced}}</text>
+                    <text class="stat-label">已练习</text>
+                </view>
+                <view class="stat-cell">
+                    <text class="stat-value stat-danger">{{stats.mistake}}</text>
+                    <text class="stat-label">错题</text>
+                </view>
+                <view class="stat-cell">
+                    <text class="stat-value stat-success">{{stats.mastered}}</text>
+                    <text class="stat-label">已掌握</text>
+                </view>
+            </view>
+
+            <view class="progress-track hero-progress">
+                <view class="progress-fill" style="width: {{stats.pct}}%"></view>
+            </view>
+            <text class="hero-pct">整体进度 {{stats.pct}}%</text>
+            <text wx:if="{{bankStatsText}}" class="hero-pct">{{bankStatsText}}</text>
+            <view class="hero-tools">
+                <view class="hero-tool-btn" bindtap="openSelfTestModal">📝 自测组卷</view>
+                <view class="hero-tool-btn" bindtap="startShufflePractice">🔀 乱序出题</view>
+                <view class="hero-tool-btn" bindtap="openShareQr">📷 二维码分享</view>
+                <view class="hero-tool-btn" bindtap="formatBankCodeNow">{{formattingCode ? '整理中...' : '⌘ 规范代码'}}</view>
+                <button class="hero-tool-btn hero-share-btn" open-type="share">↗ 微信好友</button>
+            </view>
+        </view>
+
+        <!-- 练习模式 -->
+        <view class="section-head">
+            <text class="title-md">选择练习模式</text>
+        </view>
+        <view class="mode-grid">
+            <view
+                class="mode-card"
+                wx:for="{{modes}}"
+                wx:key="key"
+                data-mode="{{item.key}}"
+                bindtap="startMode"
+            >
+                <view class="mode-icon tone-{{item.tone}}">{{item.icon}}</view>
+                <view class="mode-text">
+                    <text class="mode-title">{{item.title}}</text>
+                    <text class="mode-desc">{{item.desc}}</text>
+                </view>
+            </view>
+        </view>
+
+        <!-- 题型专项 -->
+        <block wx:if="{{typeList.length > 0}}">
+            <view class="section-head">
+                <text class="title-md">题型专项</text>
+            </view>
+            <view class="type-grid">
+                <view
+                    class="type-chip"
+                    wx:for="{{typeList}}"
+                    wx:key="key"
+                    data-type="{{item.key}}"
+                    bindtap="startType"
+                >
+                    <text class="type-name">{{item.label}}</text>
+                    <text class="type-count">{{item.count}} 题</text>
+                </view>
+            </view>
+        </block>
+
+        <!-- 章节练习 -->
+        <block wx:if="{{chapters.length > 0}}">
+            <view class="section-head">
+                <text class="title-md">章节练习</text>
+            </view>
+            <view class="card chapter-card" wx:for="{{chapters}}" wx:key="id" data-id="{{item.id}}" bindtap="startChapter">
+                <view class="chapter-main">
+                    <text class="chapter-title">{{item.title}}</text>
+                    <text class="chapter-meta">{{item.practiced}} / {{item.questionCount}} 题 · {{item.pct}}%</text>
+                    <view class="progress-track chapter-progress">
+                        <view class="progress-fill" style="width: {{item.pct}}%"></view>
+                    </view>
+                </view>
+                <text class="chapter-arrow">›</text>
+            </view>
+        </block>
+
+        <!-- 快捷入口 -->
+        <view wx:if="{{stats.mistake > 0}}" class="card mistake-entry" bindtap="goMistakes">
+            <view class="flex1">
+                <text class="mistake-title">本库有 {{stats.mistake}} 道错题待巩固</text>
+                <text class="mistake-desc">答错自动收录，连续答对 3 次自动移出</text>
+            </view>
+            <text class="mistake-go">去复习 ›</text>
+        </view>
+
+        <view style="padding:20rpx 8rpx 8rpx;text-align:center;">
+            <text style="font-size:21rpx;color:#94A3B8;line-height:1.5;">提示：导出 Word/Excel、打印讲义、DeepSeek 评级与单题编辑请访问网页端。</text>
+        </view>
+    </block>
+
+    <view class="bottom-bar" wx:if="{{!loading && !errorText}}">
+        <button class="btn btn-primary btn-block" bindtap="startAll">开始顺序练习</button>
+    </view>
+
+    <!-- 自由自测组卷弹窗 -->
+    <view wx:if="{{showSelfTestModal}}" class="qr-mask" bindtap="closeSelfTestModal">
+        <view class="self-dialog" catchtap="noop">
+            <view class="qr-head">
+                <text class="title-md">自由自测组卷</text>
+                <text class="qr-close" bindtap="closeSelfTestModal">✕</text>
+            </view>
+            <text class="self-sub">按题型自由勾选出题数量（全库可选 {{selfTotalAvail}} 题）</text>
+
+            <view class="self-preset-row">
+                <view class="self-preset-pill" data-count="10" bindtap="tapSelfPreset">10题快测</view>
+                <view class="self-preset-pill" data-count="20" bindtap="tapSelfPreset">20题标准</view>
+                <view class="self-preset-pill" data-count="30" bindtap="tapSelfPreset">30题强化</view>
+                <view class="self-preset-pill" data-count="0" bindtap="tapSelfPreset">清零</view>
+            </view>
+
+            <view class="self-type-list">
+                <view class="self-type-row">
+                    <text class="self-type-lbl">单选题（{{selfAvail.single}}）</text>
+                    <view class="self-stepper">
+                        <text class="step-btn" data-type="single" data-delta="-1" bindtap="stepSelfCount">-</text>
+                        <input class="step-input" type="number" value="{{selfCounts.single}}" data-type="single" bindinput="inputSelfCount" />
+                        <text class="step-btn" data-type="single" data-delta="1" bindtap="stepSelfCount">+</text>
+                    </view>
+                </view>
+                <view class="self-type-row">
+                    <text class="self-type-lbl">多选题（{{selfAvail.multiple}}）</text>
+                    <view class="self-stepper">
+                        <text class="step-btn" data-type="multiple" data-delta="-1" bindtap="stepSelfCount">-</text>
+                        <input class="step-input" type="number" value="{{selfCounts.multiple}}" data-type="multiple" bindinput="inputSelfCount" />
+                        <text class="step-btn" data-type="multiple" data-delta="1" bindtap="stepSelfCount">+</text>
+                    </view>
+                </view>
+                <view class="self-type-row">
+                    <text class="self-type-lbl">判断题（{{selfAvail.boolean}}）</text>
+                    <view class="self-stepper">
+                        <text class="step-btn" data-type="boolean" data-delta="-1" bindtap="stepSelfCount">-</text>
+                        <input class="step-input" type="number" value="{{selfCounts.boolean}}" data-type="boolean" bindinput="inputSelfCount" />
+                        <text class="step-btn" data-type="boolean" data-delta="1" bindtap="stepSelfCount">+</text>
+                    </view>
+                </view>
+                <view class="self-type-row">
+                    <text class="self-type-lbl">填空题（{{selfAvail.fill}}）</text>
+                    <view class="self-stepper">
+                        <text class="step-btn" data-type="fill" data-delta="-1" bindtap="stepSelfCount">-</text>
+                        <input class="step-input" type="number" value="{{selfCounts.fill}}" data-type="fill" bindinput="inputSelfCount" />
+                        <text class="step-btn" data-type="fill" data-delta="1" bindtap="stepSelfCount">+</text>
+                    </view>
+                </view>
+                <view class="self-type-row">
+                    <text class="self-type-lbl">简答题（{{selfAvail.short}}）</text>
+                    <view class="self-stepper">
+                        <text class="step-btn" data-type="short" data-delta="-1" bindtap="stepSelfCount">-</text>
+                        <input class="step-input" type="number" value="{{selfCounts.short}}" data-type="short" bindinput="inputSelfCount" />
+                        <text class="step-btn" data-type="short" data-delta="1" bindtap="stepSelfCount">+</text>
+                    </view>
+                </view>
+            </view>
+
+            <view class="self-option-row">
+                <text class="self-opt-lbl">抽题策略</text>
+                <view class="self-pills">
+                    <text
+                        wx:for="{{selfStrategyList}}"
+                        wx:key="key"
+                        class="self-opt-pill {{selfStrategy === item.key ? 'self-opt-active' : ''}}"
+                        data-key="{{item.key}}"
+                        bindtap="pickSelfStrategy"
+                    >{{item.label}}</text>
+                </view>
+            </view>
+            <view class="self-option-row">
+                <text class="self-opt-lbl">限时</text>
+                <view class="self-pills">
+                    <text
+                        wx:for="{{selfDurationOpts}}"
+                        wx:key="*this"
+                        class="self-opt-pill {{selfDuration === item ? 'self-opt-active' : ''}}"
+                        data-min="{{item}}"
+                        bindtap="pickSelfDuration"
+                    >{{item}}分</text>
+                </view>
+            </view>
+
+            <button
+                class="btn btn-primary btn-block mt24"
+                bindtap="submitSelfTest"
+                disabled="{{selfTotalPicked <= 0 || selfCreating}}"
+            >{{selfCreating ? '正在生成自测卷…' : '生成试卷（' + selfTotalPicked + ' 题）并开始自测'}}</button>
+        </view>
+    </view>
+
+    <!-- 题库分享二维码弹窗 -->
+    <view wx:if="{{showQrModal}}" class="qr-mask" bindtap="closeShareQr">
+        <view class="qr-dialog" catchtap="noop">
+            <view class="qr-head">
+                <text class="title-md">分享题库</text>
+                <text class="qr-close" bindtap="closeShareQr">✕</text>
+            </view>
+            <text class="qr-title ellipsis">{{qrData ? qrData.title : bank.title}}</text>
+            <view wx:if="{{qrLoading}}" class="qr-loading">
+                <view class="spinner"></view>
+                <text class="state-desc">正在生成专属二维码…</text>
+            </view>
+            <block wx:elif="{{qrData}}">
+                <image class="qr-img" src="{{qrData.qrDataUrl}}" mode="aspectFit" show-menu-by-longpress="true" />
+                <view class="qr-code-pill" bindtap="copyShareCode">
+                    <text>口令：{{qrData.shareCode}}</text>
+                    <text class="qr-copy-tag">点击复制</text>
+                </view>
+                <text class="qr-tip">长按二维码或点击下方按钮即可转发给微信好友 / 保存海报</text>
+                <view class="qr-actions">
+                    <button class="btn btn-outline qr-btn" bindtap="saveQrAlbum">保存到相册</button>
+                    <button class="btn btn-primary qr-btn" bindtap="shareQrImage">发送图片给好友</button>
+                </view>
+            </block>
+        </view>
+    </view>
+</view>
+
+</block>

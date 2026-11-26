@@ -1,0 +1,30 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="auth-page">
+    <view class="brand">
+        <view class="logo">棱</view>
+        <view class="brand-line">
+            <text class="brand-name">棱题</text>
+            <text class="brand-badge">PrismQ</text>
+        </view>
+        <text class="brand-desc">极简 AI 刷题 · 与网页端同一份数据</text>
+    </view>
+
+    <view class="panel">
+        <text class="signed-title">登录成功</text>
+        <text class="signed-name">{{user.nickname}}</text>
+        <text class="signed-email" wx:if="{{user.email}}">{{user.email}}</text>
+        <text class="signed-desc">题库、章节、题目、考试目录，以及你的刷题记录、错题、收藏与成绩都保存在你自己的服务器上，网页端与手机端实时一致。</text>
+        <text class="error-text" wx:if="{{authError}}">{{authError}}</text>
+        <button class="btn btn-primary btn-block submit-btn" bindtap="goHome">进入棱题</button>
+    </view>
+
+    <view class="tips">
+        <text class="tips-text">使用网站账号（用户名或邮箱）登录，首次使用可直接注册。</text>
+        <text class="tips-text">未登录时可在任意页面直接完成登录，无需跳转。</text>
+    </view>
+</view>
+</block>

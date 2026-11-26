@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import type { DbClient } from '../db/client.js';
+import { getAppConfig } from '../config.js';
 import { createAuthMiddlewares, signAuthToken } from '../middleware/auth.js';
 import { createRateLimiter, validateAiBaseUrlSync } from '../middleware/security.js';
 import { getSystemAIConfig, maskApiKey } from '../services/deepseek.js';
@@ -92,6 +94,67 @@ function toPublicUser(
   };
 }
 
+/** 微信接口调用失败：status 会原样作为 HTTP 状态码返回给调用方 */
+class WechatApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+/**
+ * 用 wx.login() 返回的 code 向微信换取 openid。
+ * AppSecret 只在这里使用，绝不下发到小程序端。
+ */
+async function exchangeWechatCode(
+  code: string,
+  appid: string,
+  secret: string
+): Promise<{ openid: string }> {
+  const url = new URL('https://api.weixin.qq.com/sns/jscode2session');
+  url.searchParams.set('appid', appid);
+  url.searchParams.set('secret', secret);
+  url.searchParams.set('js_code', code);
+  url.searchParams.set('grant_type', 'authorization_code');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  let payload: Record<string, unknown>;
+  try {
+    const response = await fetch(url.toString(), { signal: controller.signal });
+    if (!response.ok) {
+      throw new WechatApiError(502, '微信接口暂不可用，请稍后重试');
+    }
+    payload = (await response.json()) as Record<string, unknown>;
+  } catch (err) {
+    if (err instanceof WechatApiError) throw err;
+    throw new WechatApiError(502, '无法连接微信接口，请检查服务器出网与网络');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (payload.errcode) {
+    // 40029 code 无效 / 40163 code 已被用过：提示小程序重新 wx.login()
+    if (payload.errcode === 40029 || payload.errcode === 40163) {
+      throw new WechatApiError(401, '微信登录凭证已失效，请重新尝试');
+    }
+    throw new WechatApiError(502, '微信登录失败（' + String(payload.errcode) + '），请稍后重试');
+  }
+  const openid = typeof payload.openid === 'string' ? payload.openid : '';
+  if (!openid) {
+    throw new WechatApiError(502, '微信未返回 openid，请稍后重试');
+  }
+  return { openid };
+}
+
+/** 首次微信登录时给 users 表三个 NOT NULL 字段生成稳定的占位值 */
+function buildWechatPlaceholder(openid: string): { username: string; email: string } {
+  const suffix = crypto.createHash('sha256').update(openid).digest('hex').slice(0, 16);
+  return {
+    username: 'wx_' + suffix,
+    email: 'wx_' + suffix + '@wechat.invalid',
+  };
+}
+
 export function createAuthRouter(db: DbClient): Router {
   const router = Router();
   const { requireAuth, requireAdmin } = createAuthMiddlewares(db);
@@ -107,6 +170,12 @@ export function createAuthRouter(db: DbClient): Router {
     keyPrefix: 'auth:register',
     message: '注册请求过于频繁，请稍后再试',
   });
+  const wechatLoginLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    keyPrefix: 'auth:wechat-login',
+    message: '微信登录尝试过于频繁，请 15 分钟后再试',
+  });
 
   router.get('/bootstrap-status', async (_req, res) => {
     try {
@@ -115,9 +184,12 @@ export function createAuthRouter(db: DbClient): Router {
         getSystemPolicy(db),
       ]);
       const needsSetup = Number(rows[0]?.cnt ?? 0) === 0;
+      const cfg = getAppConfig();
       res.json({
         needsSetup,
         allowRegistration: needsSetup ? true : policy.allowRegistration,
+        // 小程序据此决定是否显示「微信一键登录」按钮，避免展示一个必然失败的入口
+        wechatLoginEnabled: Boolean(cfg.wechatAppId && cfg.wechatAppSecret),
       });
     } catch (err) {
       console.error('[bootstrap-status]', err);
@@ -233,6 +305,105 @@ export function createAuthRouter(db: DbClient): Router {
     } catch (err) {
       console.error('[login]', err);
       res.status(500).json({ error: '登录失败，请稍后重试' });
+    }
+  });
+
+  /**
+   * 微信小程序一键登录：wx.login() -> code -> jscode2session -> openid。
+   * 已绑定的 openid 直接签发 JWT；首次登录按系统注册策略自动创建账号。
+   * 响应结构与 /api/auth/login 一致，额外返回 isNewUser。
+   */
+  router.post('/wechat-login', wechatLoginLimiter, async (req, res) => {
+    try {
+      const cfg = getAppConfig();
+      if (!cfg.wechatAppId || !cfg.wechatAppSecret) {
+        res.status(501).json({ error: '服务器尚未配置微信登录（WECHAT_APPID / WECHAT_APPSECRET）' });
+        return;
+      }
+
+      const code = String(req.body?.code ?? '').trim();
+      if (!code) {
+        res.status(400).json({ error: '缺少微信登录凭证 code' });
+        return;
+      }
+
+      const { openid } = await exchangeWechatCode(code, cfg.wechatAppId, cfg.wechatAppSecret);
+      const { rows } = await db.query<UserDbRow>(
+        'SELECT * FROM users WHERE wechat_openid = $1 LIMIT 1',
+        [openid]
+      );
+
+      let row = rows[0];
+      let isNewUser = false;
+
+      if (!row) {
+        const { rows: countRows } = await db.query<{ cnt: string | number }>(
+          'SELECT COUNT(*) AS cnt FROM users'
+        );
+        const existingUsers = Number(countRows[0]?.cnt ?? 0);
+        if (existingUsers > 0) {
+          const policy = await getSystemPolicy(db);
+          if (!policy.allowRegistration) {
+            res.status(403).json({ error: '系统已关闭自助注册，请联系管理员开通账号' });
+            return;
+          }
+        }
+
+        const placeholder = buildWechatPlaceholder(openid);
+        const passwordHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+        const role: UserRole = existingUsers === 0 ? 'admin' : 'member';
+
+        const { rows: inserted } = await db.query<UserDbRow>(
+          `INSERT INTO users (username, email, password_hash, nickname, role, settings, wechat_openid, last_active_at)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())
+           ON CONFLICT (wechat_openid) WHERE wechat_openid IS NOT NULL DO NOTHING
+           RETURNING *`,
+          [
+            placeholder.username,
+            placeholder.email,
+            passwordHash,
+            '微信用户',
+            role,
+            JSON.stringify({ removeAfterCorrectCount: 3, autoNextOnCorrect: true }),
+            openid,
+          ]
+        );
+        if (inserted[0]) {
+          row = inserted[0];
+          isNewUser = true;
+        } else {
+          const { rows: conflicted } = await db.query<UserDbRow>(
+            'SELECT * FROM users WHERE wechat_openid = $1 LIMIT 1',
+            [openid]
+          );
+          row = conflicted[0];
+          isNewUser = false;
+        }
+      }
+
+      if (!row) {
+        res.status(500).json({ error: '微信登录失败，请稍后重试' });
+        return;
+      }
+      if (row.is_disabled) {
+        res.status(403).json({ error: '该账号已被管理员禁用，请联系系统管理员' });
+        return;
+      }
+
+      await db.query('UPDATE users SET last_active_at = NOW() WHERE id = $1', [row.id]);
+      row.last_active_at = new Date().toISOString();
+
+      const sysAi = await getSystemAIConfig(db);
+      const user = toPublicUser(row, sysAi);
+      const token = signAuthToken({ userId: user.id, username: user.username, role: user.role });
+      res.json({ token, user, isNewUser });
+    } catch (err) {
+      if (err instanceof WechatApiError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      console.error('[wechat-login]', err);
+      res.status(500).json({ error: '微信登录失败，请稍后重试' });
     }
   });
 

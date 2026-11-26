@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  GraduationCap,
   Sparkles,
   FileUp,
   ShieldCheck,
@@ -13,6 +12,7 @@ import {
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useTheme } from '../lib/theme';
+import { PrismQLogo } from '../components/PrismQLogo';
 import { Alert, Button, INPUT_CLS, LABEL_CLS } from '../components/ui';
 
 export const AuthPage: React.FC = () => {
@@ -93,7 +93,7 @@ export const AuthPage: React.FC = () => {
         <div className="flex flex-col justify-between bg-[#0F172A] p-8 text-white sm:p-10">
           <div>
             <div className="inline-flex items-center gap-2.5 rounded-xl bg-white/10 px-3.5 py-2 backdrop-blur-sm">
-              <GraduationCap className="h-5 w-5 text-brand-300" />
+              <PrismQLogo className="h-6 w-6 shrink-0" />
               <span className="text-base font-bold tracking-tight">棱题 · PrismQ</span>
             </div>
             <h1 className="mt-6 text-2xl font-bold leading-snug sm:text-3xl">

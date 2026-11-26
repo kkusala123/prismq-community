@@ -1,0 +1,87 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap">
+    <!-- 用户信息 -->
+    <view class="user-card">
+        <view class="avatar">{{avatarChar}}</view>
+        <view class="user-main">
+            <view class="row">
+                <text class="user-name">{{user.nickname || user.username}}</text>
+                <text class="tag tag-brand user-role">{{roleLabel}}</text>
+            </view>
+            <text class="user-meta">{{user.email || '本地服务器账号'}}</text>
+        </view>
+        <text class="tag tag-success">直连服务器</text>
+    </view>
+
+    <!-- 学习统计 -->
+    <view class="card stat-card">
+        <view class="stat-item">
+            <text class="stat-value">{{stats.totalAnswered}}</text>
+            <text class="stat-label">累计作答</text>
+        </view>
+        <view class="stat-item">
+            <text class="stat-value stat-brand">{{stats.accuracy}}%</text>
+            <text class="stat-label">正确率</text>
+        </view>
+        <view class="stat-item">
+            <text class="stat-value stat-success">{{stats.masteredCount}}</text>
+            <text class="stat-label">已掌握</text>
+        </view>
+        <view class="stat-item">
+            <text class="stat-value stat-danger">{{stats.mistakeCount}}</text>
+            <text class="stat-label">错题</text>
+        </view>
+    </view>
+
+    <!-- 功能入口 -->
+    <view class="card menu-card">
+        <view class="menu-item" bindtap="handleEditNickname">
+            <text class="menu-icon icon-blue">名</text>
+            <text class="menu-text">修改昵称</text>
+            <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" bindtap="goBanks">
+            <text class="menu-icon icon-blue">题</text>
+            <text class="menu-text">题库中心</text>
+            <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" bindtap="goMistakes">
+            <text class="menu-icon icon-rose">错</text>
+            <text class="menu-text">错题与收藏</text>
+            <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" bindtap="goExams">
+            <text class="menu-icon icon-green">考</text>
+            <text class="menu-text">在线考试</text>
+            <text class="menu-arrow">›</text>
+        </view>
+    </view>
+
+    <!-- 多端功能差异说明 -->
+    <view class="card parity-card">
+        <view class="between">
+            <text class="parity-title">多端功能差异说明</text>
+            <text class="tag tag-brand">网页端 / App 扩展</text>
+        </view>
+        <text class="parity-desc">小程序专注随时随地刷题、自由自测组卷、严谨参试/发起考试与扫码分享；以下功能暂不在小程序提供，请访问网页端或 App（账号与数据完全互通）：</text>
+        <view class="parity-list">
+            <text class="parity-item">• 新建题库、Excel / Word / PDF 导题与 DeepSeek AI 异步建库</text>
+            <text class="parity-item">• 批量 AI 难度/星级智能评级与个人 AI Key 配置（小程序刷题/成绩页已支持 AI 一键解析）</text>
+            <text class="parity-item">• 全局跨库搜题、导出 Excel/Word 文档与纸质讲义打印排版</text>
+            <text class="parity-item">• 单题手工编辑、章节管理、成员授权及考场口令/主观题人工调分</text>
+        </view>
+        <button class="btn btn-outline btn-sm mt16" bindtap="copyWebUrl">复制网页端网址 (prismq.example.com)</button>
+    </view>
+
+    <button class="btn btn-plain btn-block logout-btn" bindtap="handleLogout">退出登录</button>
+
+    <view class="footer-tip">
+        <text class="muted">棱题 · PrismQ 微信小程序 · 服务器直连版</text>
+        <text class="muted footer-sub">数据与网页端共用同一个 PostgreSQL 数据库</text>
+    </view>
+</view>
+</block>

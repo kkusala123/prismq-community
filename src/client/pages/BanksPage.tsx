@@ -199,7 +199,7 @@ export const BanksPage: React.FC = () => {
         }
       />
 
-      {/* 考试宝风格分类筛选与搜索面板 */}
+      {/* 棱题 · PrismQ 分类筛选与搜索面板 */}
       <Card padding="md" className="space-y-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Tabs
@@ -264,7 +264,7 @@ export const BanksPage: React.FC = () => {
         )}
       </Card>
 
-      {/* 考试宝风格清晰列表行视图 */}
+      {/* 棱题 · PrismQ 清晰列表行视图 */}
       {loading ? (
         <div className="py-16 text-center text-sm text-[#606266]">正在加载题库列表...</div>
       ) : filteredBanks.length === 0 ? (

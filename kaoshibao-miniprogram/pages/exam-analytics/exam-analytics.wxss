@@ -1,0 +1,165 @@
+.hero-name {
+    display: block;
+    font-size: 32rpx;
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.hero-sub {
+    display: block;
+    margin-top: 6rpx;
+    color: #64748B;
+    font-size: 22rpx;
+}
+
+.kpi-grid {
+    display: flex;
+    margin-top: 24rpx;
+    padding: 18rpx 0;
+    border-radius: 14rpx;
+    background: #F8FAFC;
+}
+
+.kpi-cell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border-right: 2rpx solid #EDF1F5;
+}
+
+.kpi-cell:last-child {
+    border-right: none;
+}
+
+.kpi-val {
+    font-size: 32rpx;
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.kpi-live {
+    color: #059669;
+}
+
+.kpi-brand {
+    color: #2554A8;
+}
+
+.kpi-lbl {
+    margin-top: 4rpx;
+    font-size: 20rpx;
+    color: #64748B;
+}
+
+.terminate-btn {
+    width: 100%;
+    height: 78rpx;
+    line-height: 78rpx;
+    border-radius: 14rpx;
+    background: #DC2626;
+    color: #ffffff;
+    font-size: 26rpx;
+    font-weight: 700;
+}
+
+.section-head {
+    margin: 28rpx 4rpx 14rpx;
+}
+
+.session-card,
+.sub-card,
+.qstat-card {
+    margin-bottom: 16rpx;
+    padding: 24rpx;
+}
+
+.person-name {
+    font-size: 27rpx;
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.ml8 {
+    margin-left: 10rpx;
+}
+
+.session-progress,
+.sub-meta {
+    display: block;
+    margin-top: 6rpx;
+    color: #64748B;
+    font-size: 22rpx;
+}
+
+.sub-right {
+    text-align: right;
+    margin-left: 16rpx;
+}
+
+.sub-score {
+    display: block;
+    font-size: 36rpx;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.score-ok {
+    color: #12B76A;
+}
+
+.score-bad {
+    color: #F56C6C;
+}
+
+.sub-status {
+    display: block;
+    margin-top: 4rpx;
+    font-size: 20rpx;
+    color: #64748B;
+}
+
+.risk-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8rpx;
+    margin-top: 12rpx;
+}
+
+.risk-tag {
+    padding: 4rpx 12rpx;
+    border-radius: 8rpx;
+    background: #FEF2F2;
+    color: #DC2626;
+    font-size: 20rpx;
+    font-weight: 600;
+}
+
+.qstat-no {
+    font-size: 23rpx;
+    font-weight: 700;
+    color: #2554A8;
+}
+
+.qstat-rate {
+    font-size: 25rpx;
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.qstat-stem {
+    display: block;
+    margin-top: 8rpx;
+    color: #334155;
+    font-size: 24rpx;
+    line-height: 1.45;
+}
+
+.mt12 {
+    margin-top: 12rpx;
+}
+
+.empty-box {
+    text-align: center;
+    padding: 40rpx;
+}

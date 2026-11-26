@@ -1,0 +1,402 @@
+page {
+    --brand: #007AFF;
+    --brand-dark: #0062CC;
+    --brand-50: #EAF3FF;
+    --brand-100: #CCE3FF;
+    --brand-200: #A8D1FF;
+    --bg: #F2F2F7;
+    --card: #FFFFFF;
+    --card-elevated: #F2F2F7;
+    --text: #1C1C1E;
+    --text-sub: #636366;
+    --text-muted: #8E8E93;
+    --border: #E5E5EA;
+    --divider: #E5E5EA;
+    --danger: #FF3B30;
+    --danger-bg: #FFECEB;
+    --success: #34C759;
+    --success-bg: #EAF9EE;
+    --warning: #FF9500;
+    --ai: #5856D6;
+    --ai-bg: #EFEEFC;
+
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    font-size: 28rpx;
+    line-height: 1.5;
+    -webkit-tap-highlight-color: transparent;
+}
+
+view,
+text,
+input,
+textarea,
+button {
+    box-sizing: border-box;
+}
+
+button {
+    width: auto !important;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    font-size: 28rpx;
+    font-weight: 600;
+    line-height: 1.4;
+    border-radius: 20rpx;
+}
+
+button::after {
+    border: none;
+}
+
+/* ---------- 布局 ---------- */
+.page-wrap {
+    padding: 24rpx 28rpx 48rpx;
+}
+
+.row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+.col {
+    display: flex;
+    flex-direction: column;
+}
+
+.between {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.flex1 {
+    flex: 1;
+    min-width: 0;
+}
+
+.wrap {
+    flex-wrap: wrap;
+}
+
+/* ---------- 卡片 ---------- */
+.card {
+    padding: 32rpx;
+    border-radius: 32rpx;
+    background: var(--card);
+    box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.03);
+}
+
+.card + .card,
+.mt24 {
+    margin-top: 24rpx;
+}
+
+.mt16 {
+    margin-top: 16rpx;
+}
+
+.mt32 {
+    margin-top: 32rpx;
+}
+
+.divider {
+    height: 2rpx;
+    background: var(--divider);
+}
+
+/* ---------- 文本 ---------- */
+.title-lg {
+    font-size: 40rpx;
+    font-weight: 700;
+    letter-spacing: -0.5rpx;
+}
+
+.title-md {
+    font-size: 32rpx;
+    font-weight: 700;
+}
+
+.title-sm {
+    font-size: 28rpx;
+    font-weight: 600;
+}
+
+.muted {
+    color: var(--text-muted);
+    font-size: 24rpx;
+}
+
+.sub {
+    color: var(--text-sub);
+    font-size: 26rpx;
+}
+
+.ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 按钮 ---------- */
+.btn {
+    display: flex;
+    height: 88rpx;
+    align-items: center;
+    justify-content: center;
+    padding: 0 32rpx;
+    border-radius: 16rpx;
+    font-size: 30rpx;
+    font-weight: 600;
+}
+
+.btn-primary {
+    background: var(--brand);
+    color: #ffffff;
+}
+
+.btn-primary.is-disabled {
+    background: #A8CFFF;
+}
+
+.btn-outline {
+    border: 2rpx solid var(--brand);
+    color: var(--brand);
+    background: #ffffff;
+}
+
+.btn-ghost {
+    background: var(--brand-50);
+    color: var(--brand);
+}
+
+.btn-plain {
+    background: #F2F3F5;
+    color: var(--text-sub);
+}
+
+.btn-sm {
+    height: 62rpx;
+    padding: 0 24rpx;
+    font-size: 24rpx;
+    font-weight: 600;
+    border-radius: 14rpx;
+}
+
+.btn-block {
+    width: 100% !important;
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: #ffffff;
+}
+
+/* ---------- 标签 ---------- */
+.tag {
+    display: inline-flex;
+    flex-shrink: 0;
+    white-space: nowrap;
+    height: 40rpx;
+    align-items: center;
+    padding: 0 14rpx;
+    border-radius: 10rpx;
+    font-size: 22rpx;
+    font-weight: 600;
+}
+
+.tag-brand {
+    background: var(--brand-50);
+    color: var(--brand);
+}
+
+.tag-solid {
+    background: var(--brand);
+    color: #ffffff;
+}
+
+.tag-gray {
+    background: #F2F3F5;
+    color: var(--text-sub);
+}
+
+.tag-danger {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.tag-success {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.tag-warning {
+    background: #FDF6EC;
+    color: var(--warning);
+}
+
+/* ---------- 状态 ---------- */
+.state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 110rpx 40rpx;
+    text-align: center;
+}
+
+.state-icon {
+    font-size: 72rpx;
+    line-height: 1;
+}
+
+.state-title {
+    margin-top: 24rpx;
+    font-size: 30rpx;
+    font-weight: 600;
+}
+
+.state-desc {
+    margin-top: 12rpx;
+    color: var(--text-muted);
+    font-size: 25rpx;
+    line-height: 1.6;
+}
+
+.spinner {
+    width: 44rpx;
+    height: 44rpx;
+    border: 6rpx solid var(--brand-100);
+    border-top-color: var(--brand);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ---------- 进度条 ---------- */
+.progress-track {
+    height: 12rpx;
+    overflow: hidden;
+    border-radius: 999rpx;
+    background: #EBEEF5;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 999rpx;
+    background: var(--brand);
+}
+
+/* ---------- 安全区 ---------- */
+.safe-bottom {
+    padding-bottom: constant(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.bottom-bar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+    border-top: 2rpx solid var(--divider);
+    background: #ffffff;
+}
+
+/* ---------- 登录态 ---------- */
+.auth-state {
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 48rpx;
+    background: var(--bg);
+}
+
+.auth-state-text {
+    color: #64748B;
+    font-size: 28rpx;
+}
+
+/* ---------- 富文本代码块 ---------- */
+.rich-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 12rpx;
+}
+
+.rich-text {
+    display: block;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.code-card {
+    margin: 6rpx 0;
+    overflow: hidden;
+    border: 2rpx solid #1E293B;
+    border-radius: 14rpx;
+    background: #0F172A;
+}
+
+.code-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10rpx 20rpx;
+    border-bottom: 1rpx solid rgba(148, 163, 184, 0.2);
+    background: #1E293B;
+}
+
+.code-lang {
+    color: #94A3B8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 21rpx;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.code-copy {
+    padding: 4rpx 14rpx;
+    border-radius: 8rpx;
+    background: rgba(59, 130, 246, 0.18);
+    color: #93C5FD;
+    font-size: 21rpx;
+}
+
+.code-scroll {
+    width: 100%;
+    max-height: 460rpx;
+    padding: 16rpx 20rpx;
+}
+
+.code-pre {
+    display: block;
+    color: #E2E8F0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 24rpx;
+    line-height: 1.58;
+    white-space: pre;
+    word-break: normal;
+}

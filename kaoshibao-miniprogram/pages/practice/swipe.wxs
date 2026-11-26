@@ -1,0 +1,248 @@
+/**
+ * 棱题 · PrismQ · 练习页左右滑动切题（视图层手势）
+ *
+ * 全程跑在视图层：手指移动时直接改 .swipe-inner 的行内样式，
+ * 不经过逻辑层 setData，所以跟手没有跨线程延迟。
+ * 逻辑层只在「松手确认要切题」时被调用一次（onSwipeCommit）。
+ *
+ * 说明：WXS 只支持 ES5 语法，不要写 const/let、箭头函数、模板字符串。
+ */
+
+/* 阈值与 Web 端手机模式保持一致 */
+var DISTANCE_PX = 80;        // 位移判定下限
+var DISTANCE_RATIO = 0.22;   // 或以屏宽百分比判定
+var VELOCITY = 0.4;          // 快速轻扫的判定速度（px/ms）
+var VELOCITY_MIN_DX = 30;    // 轻扫至少要走这么远
+var EDGE_DAMPING = 0.3;      // 首末题的橡皮筋阻尼
+var MAX_RATIO = 0.62;        // 跟手最大位移占屏宽比例
+
+var EASE_OUT = 'cubic-bezier(0.22,0.61,0.36,1)';
+var EASE_IN = 'cubic-bezier(0.4,0,0.6,1)';
+
+var state = {
+    active: false,   // 本次手势是否由滑动接管
+    locked: false,   // 已判定为横向
+    busy: false,     // 切题动画进行中，忽略新手势
+    busyUntil: 0,
+    x: 0,
+    y: 0,
+    dx: 0,
+    width: 375,
+    index: 0,
+    total: 0,
+    time: 0
+};
+
+function now() {
+    // WXS 基础类库里 Date.now 是明确支持的静态方法；不要用 new Date()
+    return Date.now();
+}
+
+function num(v, fallback) {
+    // WXS 的 Number 只有 MAX_VALUE 等静态属性，不是可调用的构造函数；
+    // 全局函数只提供 parseInt / parseFloat / isNaN / isFinite。
+    var n = parseFloat(v);
+    if (isNaN(n)) return fallback;
+    return n;
+}
+
+function px(v) {
+    return (Math.round(v * 10) / 10) + 'px';
+}
+
+function clamp(v, min, max) {
+    if (v < min) return min;
+    if (v > max) return max;
+    return v;
+}
+
+function inner(ownerInstance) {
+    if (!ownerInstance) return null;
+    return ownerInstance.selectComponent('.swipe-inner');
+}
+
+/* 回到静止态：无过渡，直接落在中间位置 */
+function snap(inst) {
+    inst.setStyle({
+        transition: 'none',
+        transform: 'translate3d(0px,0px,0px)',
+        opacity: '1'
+    });
+}
+
+/* 带过渡地回到中间（松手未过阈值 / 越界回弹） */
+function springBack(inst) {
+    inst.setStyle({
+        transition: 'transform 260ms ' + EASE_OUT + ', opacity 260ms ' + EASE_OUT,
+        transform: 'translate3d(0px,0px,0px)',
+        opacity: '1'
+    });
+}
+
+function busyNow() {
+    if (!state.busy) return false;
+    if (now() < state.busyUntil) return true;
+    state.busy = false;
+    return false;
+}
+
+function releaseAfter(ms) {
+    state.busy = true;
+    state.busyUntil = now() + ms;
+}
+
+function touchstart(e, ownerInstance) {
+    if (busyNow()) return;
+
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {};
+    var total = num(ds.total, 0);
+    if (total <= 1) return;
+
+    // 输入框内起手不接管，否则会把正在填的答案带走
+    var tds = (e.target && e.target.dataset) || {};
+    if (tds.noSwipe) return;
+
+    var t = e.touches && e.touches[0];
+    if (!t) return;
+
+    state.active = true;
+    state.locked = false;
+    state.x = t.pageX;
+    state.y = t.pageY;
+    state.dx = 0;
+    state.width = num(ds.width, 375);
+    state.index = num(ds.index, 0);
+    state.total = total;
+    state.time = now();
+
+    var inst = inner(ownerInstance);
+    // 上一轮淡入可能还没播完，先落定，避免跟手时残留半透明
+    if (inst) snap(inst);
+
+    // 让逻辑层清掉「答对自动切题」的待执行定时器
+    ownerInstance.callMethod('onSwipeStart');
+}
+
+function touchmove(e, ownerInstance) {
+    if (!state.active) return;
+
+    var t = e.touches && e.touches[0];
+    if (!t) return;
+
+    var dx = t.pageX - state.x;
+    var dy = t.pageY - state.y;
+
+    if (!state.locked) {
+        // 起手 8px 内不判定方向，避免手抖就锁死横向
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dy) >= Math.abs(dx)) {
+            // 纵向为主：交还给页面滚动，本次手势不再接管
+            state.active = false;
+            return;
+        }
+        state.locked = true;
+    }
+
+    var inst = inner(ownerInstance);
+    if (!inst) return;
+
+    var width = state.width;
+    var offset = clamp(dx, -width * MAX_RATIO, width * MAX_RATIO);
+
+    // 首题右滑、末题左滑：加阻尼，做「拉不动」的手感
+    if ((offset > 0 && state.index <= 0) || (offset < 0 && state.index >= state.total - 1)) {
+        offset = offset * EDGE_DAMPING;
+    }
+    state.dx = offset;
+
+    var ratio = Math.abs(offset) / (width * MAX_RATIO);
+    inst.setStyle({
+        transition: 'none',
+        transform: 'translate3d(' + px(offset) + ',0px,0px)',
+        opacity: '' + (1 - ratio * 0.28)
+    });
+}
+
+function touchend(e, ownerInstance) {
+    var inst = inner(ownerInstance);
+
+    if (!state.active) {
+        // 纵向滚动或无效手势
+        if (inst && state.locked) springBack(inst);
+        state.locked = false;
+        return;
+    }
+    state.active = false;
+    state.locked = false;
+
+    if (!inst) return;
+
+    var t = e.changedTouches && e.changedTouches[0];
+    var dx = t ? t.pageX - state.x : state.dx;
+    var elapsed = now() - state.time;
+    if (elapsed < 1) elapsed = 1;
+    var velocity = dx / elapsed;
+
+    var width = state.width;
+    var hitDistance = Math.abs(dx) > Math.min(DISTANCE_PX, width * DISTANCE_RATIO);
+    var hitVelocity = Math.abs(velocity) > VELOCITY && Math.abs(dx) > VELOCITY_MIN_DX;
+
+    var dir = dx < 0 ? 'next' : 'prev';
+    var canMove = dir === 'next' ? state.index < state.total - 1 : state.index > 0;
+
+    if (!(hitDistance || hitVelocity) || !canMove) {
+        springBack(inst);
+        return;
+    }
+
+    // 顺方向飞出 → 切换内容 → 反方向淡入
+    releaseAfter(170);
+
+    var outX = (dir === 'next' ? -1 : 1) * width * MAX_RATIO;
+    inst.setStyle({
+        transition: 'transform 130ms ' + EASE_IN + ', opacity 130ms ' + EASE_IN,
+        transform: 'translate3d(' + px(outX) + ',0px,0px)',
+        opacity: '0'
+    });
+
+    // 定时器是 ComponentDescriptor 上的方法（基础库 2.14.2+），不是 WXS 全局函数。
+    ownerInstance.setTimeout(function () {
+        // 页面可能已被销毁（返回上一页），此时不再回调逻辑层
+        var inst2 = inner(ownerInstance);
+        if (!inst2) return;
+
+        // 卡片已完全透明，此时换内容不会看到跳变
+        ownerInstance.callMethod('onSwipeCommit', { dir: dir });
+
+        inst2.setStyle({
+            transition: 'none',
+            transform: 'translate3d(' + px(dir === 'next' ? 30 : -30) + ',0px,0px)',
+            opacity: '0'
+        });
+
+        ownerInstance.setTimeout(function () {
+            var inst3 = inner(ownerInstance);
+            if (!inst3) return;
+            inst3.setStyle({
+                transition: 'transform 240ms ' + EASE_OUT + ', opacity 200ms ease-out',
+                transform: 'translate3d(0px,0px,0px)',
+                opacity: '1'
+            });
+        }, 40);
+    }, 130);
+}
+
+function touchcancel(e, ownerInstance) {
+    var inst = inner(ownerInstance);
+    var wasLocked = state.locked;
+    state.active = false;
+    state.locked = false;
+    if (inst && wasLocked) springBack(inst);
+}
+
+module.exports = {
+    touchstart: touchstart,
+    touchmove: touchmove,
+    touchend: touchend,
+    touchcancel: touchcancel
+};

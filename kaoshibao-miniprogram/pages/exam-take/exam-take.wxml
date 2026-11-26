@@ -1,0 +1,124 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="exam-page">
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在加载试卷</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">无法进入考试</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-outline btn-sm mt24" bindtap="goBack">返回</button>
+    </view>
+
+    <view wx:elif="{{total === 0}}" class="state">
+        <text class="state-icon">○</text>
+        <text class="state-title">试卷没有题目</text>
+        <text class="state-desc">请联系组织者重新组卷</text>
+    </view>
+
+    <block wx:else>
+        <!-- 顶部：标题 + 倒计时 -->
+        <view class="exam-header">
+            <view class="header-left">
+                <text class="exam-title ellipsis">{{exam.title}}</text>
+                <text class="exam-sub">第 {{index + 1}} / {{total}} 题 · 已答 {{answeredCount}}</text>
+            </view>
+            <view class="timer {{timeWarn ? 'timer-warn' : ''}}">
+                <text class="timer-icon">◷</text>
+                <text class="timer-text">{{timeText}}</text>
+            </view>
+        </view>
+
+        <!-- 题干 -->
+        <view class="card question-card">
+            <view class="q-head">
+                <text class="tag tag-brand">{{typeLabel}}</text>
+                <text wx:if="{{current.type === 'multiple'}}" class="q-tip">（多选）</text>
+            </view>
+            <view class="rich-wrap q-stem">
+                <block wx:for="{{stemSegments}}" wx:key="index">
+                    <text wx:if="{{item.type === 'text'}}" class="rich-text" user-select="true">{{item.content}}</text>
+                    <view wx:else class="code-card">
+                        <view class="code-card-head">
+                            <text class="code-lang">{{item.lang}}</text>
+                            <text class="code-copy" data-code="{{item.content}}" bindtap="copyCodeBlock">复制</text>
+                        </view>
+                        <scroll-view class="code-scroll" scroll-x="true">
+                            <text class="code-pre" user-select="true">{{item.content}}</text>
+                        </scroll-view>
+                    </view>
+                </block>
+            </view>
+
+            <view wx:if="{{current.type !== 'fill' && current.type !== 'short'}}" class="options">
+                <view
+                    class="option {{item.selected ? 'opt-selected' : ''}}"
+                    wx:for="{{currentOptions}}"
+                    wx:key="key"
+                    data-key="{{item.key}}"
+                    bindtap="tapOption"
+                >
+                    <view class="opt-key {{item.selected ? 'opt-key-selected' : ''}}">{{item.key}}</view>
+                    <text class="opt-content">{{item.content}}</text>
+                </view>
+            </view>
+
+            <view wx:if="{{current.type === 'fill'}}" class="fill-area">
+                <input class="fill-input" value="{{currentAnswer}}" bindinput="onFillInput" placeholder="请输入答案" placeholder-class="ph" />
+            </view>
+
+            <view wx:if="{{current.type === 'short'}}" class="fill-area">
+                <textarea class="short-input" value="{{currentAnswer}}" bindinput="onFillInput" placeholder="请输入作答内容" placeholder-class="ph"></textarea>
+            </view>
+        </view>
+
+        <view class="switch-tip" wx:if="{{tabSwitchCount > 0 || proctorWarnText}}">
+            <text class="switch-text">已记录 {{tabSwitchCount}}/{{exam.maxTabSwitches}} 次异常行为{{proctorWarnText ? ' · ' + proctorWarnText : ''}}</text>
+        </view>
+
+        <!-- 底部操作 -->
+        <view class="bottom-bar exam-bar">
+            <button class="btn btn-plain bar-btn" bindtap="prevQuestion">上一题</button>
+            <button class="btn btn-ghost bar-btn" bindtap="openCard">答题卡</button>
+            <button class="btn btn-primary bar-btn" bindtap="nextQuestion">
+                {{index >= total - 1 ? '交卷' : '下一题'}}
+            </button>
+        </view>
+
+        <!-- 答题卡 -->
+        <view wx:if="{{showCard}}" class="mask" bindtap="closeCard">
+            <view class="card-panel" catchtap="noop">
+                <view class="card-panel-head">
+                    <text class="title-md">答题卡</text>
+                    <text class="card-close" bindtap="closeCard">✕</text>
+                </view>
+
+                <view class="card-summary">
+                    <text class="summary-text">已答 {{answeredCount}} 题 · 未答 {{total - answeredCount}} 题</text>
+                </view>
+
+                <scroll-view class="card-grid-scroll" scroll-y>
+                    <view class="card-grid">
+                        <view
+                            class="card-cell {{item.answered ? 'cell-done' : ''}} {{item.current ? 'cell-current' : ''}}"
+                            wx:for="{{cardItems}}"
+                            wx:key="no"
+                            data-index="{{item.index}}"
+                            bindtap="jumpTo"
+                        >{{item.no}}</view>
+                    </view>
+                </scroll-view>
+
+                <button class="btn btn-primary btn-block mt32" bindtap="confirmSubmit" loading="{{submitting}}">交卷</button>
+            </view>
+        </view>
+    </block>
+</view>
+
+</block>

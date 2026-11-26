@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import type { DbClient } from '../db/client.js';
 import { createAuthMiddlewares } from '../middleware/auth.js';
 import { gradeQuestionAnswer } from '../services/grader.js';
@@ -62,6 +63,7 @@ export function createPracticeRouter(db: DbClient): Router {
            (SELECT COUNT(*) FROM question_banks WHERE owner_id = $1) AS my_banks_count,
            (SELECT COALESCE(SUM(answered_count), 0) FROM user_question_records WHERE user_id = $1) AS total_answered,
            (SELECT COALESCE(SUM(correct_count), 0) FROM user_question_records WHERE user_id = $1) AS total_correct,
+           (SELECT COALESCE(SUM(wrong_count), 0) FROM user_question_records WHERE user_id = $1) AS total_wrong,
            (SELECT COUNT(*) FROM user_question_records WHERE user_id = $1 AND in_mistake_book = TRUE) AS mistake_count,
            (SELECT COUNT(*) FROM user_question_records WHERE user_id = $1 AND is_mastered = TRUE) AS mastered_count,
            (SELECT COUNT(*) FROM user_question_records WHERE user_id = $1 AND is_favorited = TRUE) AS favorite_count`,
@@ -69,8 +71,10 @@ export function createPracticeRouter(db: DbClient): Router {
       );
 
       const s = statsRows[0] || {};
-      const totalAnswered = Number(s.total_answered ?? 0);
       const totalCorrect = Number(s.total_correct ?? 0);
+      const totalWrong = Number(s.total_wrong ?? 0);
+      const totalAttempts = totalCorrect + totalWrong;
+      const totalAnswered = Math.max(Number(s.total_answered ?? 0), totalAttempts);
 
       const { rows: recentBanks } = await db.query<Record<string, unknown>>(
         `SELECT
@@ -120,7 +124,8 @@ export function createPracticeRouter(db: DbClient): Router {
           myBanksCount: Number(s.my_banks_count ?? 0),
           totalAnswered,
           totalCorrect,
-          accuracy: totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0,
+          accuracy:
+            totalAttempts > 0 ? Math.min(100, Math.round((totalCorrect / totalAttempts) * 100)) : 0,
           mistakeCount: Number(s.mistake_count ?? 0),
           masteredCount: Number(s.mastered_count ?? 0),
           favoriteCount: Number(s.favorite_count ?? 0),
@@ -169,6 +174,17 @@ export function createPracticeRouter(db: DbClient): Router {
       const minStar = Math.min(5, Math.max(0, Number(req.query.minStar || 0) || 0));
       const excludeMastered = req.query.excludeMastered === 'true';
       const onlyUnanswered = req.query.onlyUnanswered === 'true' || mode === 'unanswered';
+      const shuffleQuestions =
+        mode === 'random' ||
+        req.query.shuffleQuestions === 'true' ||
+        req.query.shuffleQuestions === '1';
+      const rawSortBy = String(req.query.sortBy || '').trim();
+      const effectiveSortBy =
+        rawSortBy === 'difficulty_asc' || mode === ('difficulty_asc' as string)
+          ? 'difficulty_asc'
+          : rawSortBy === 'difficulty_desc' || mode === ('difficulty_desc' as string)
+          ? 'difficulty_desc'
+          : 'default';
 
       const params: unknown[] = [userId];
       const clauses: string[] = [
@@ -210,6 +226,13 @@ export function createPracticeRouter(db: DbClient): Router {
         clauses.push(`COALESCE(r.answered_count, 0) = 0`);
       }
 
+      const orderBySql =
+        effectiveSortBy === 'difficulty_asc'
+          ? 'q.difficulty ASC, q.star_rating ASC, q.sort_order ASC, q.created_at ASC'
+          : effectiveSortBy === 'difficulty_desc'
+          ? 'q.difficulty DESC, q.star_rating DESC, q.sort_order ASC, q.created_at ASC'
+          : 'q.sort_order ASC, q.created_at ASC';
+
       const { rows } = await db.query<Record<string, unknown>>(
         `SELECT
            q.*,
@@ -222,14 +245,28 @@ export function createPracticeRouter(db: DbClient): Router {
          LEFT JOIN chapters c ON c.id = q.chapter_id
          LEFT JOIN user_question_records r ON r.question_id = q.id AND r.user_id = $1
          WHERE ${clauses.join(' AND ')}
-         ORDER BY q.sort_order ASC, q.created_at ASC`,
+         ORDER BY ${orderBySql}`,
         params
       );
 
       const questions = rows.map(mapQuestionRow);
-      if (mode === 'random') {
+      if (mode === 'mistakes' || mode === 'favorites') {
+        for (const q of questions) {
+          if (q.record) {
+            q.record = {
+              ...q.record,
+              answeredCount: 0,
+              lastAnswer: null,
+              lastIsCorrect: null,
+            };
+          }
+        }
+      }
+      let shuffleSeed = '';
+      if (shuffleQuestions && questions.length > 1) {
+        shuffleSeed = crypto.randomBytes(4).toString('hex');
         for (let i = questions.length - 1; i > 0; i -= 1) {
-          const j = Math.floor(Math.random() * (i + 1));
+          const j = crypto.randomInt(0, i + 1);
           [questions[i], questions[j]] = [questions[j], questions[i]];
         }
       }
@@ -237,13 +274,21 @@ export function createPracticeRouter(db: DbClient): Router {
       const firstUnansweredIdx = questions.findIndex((q) => !q.record || q.record.answeredCount === 0);
       const nextUnansweredIndex = firstUnansweredIdx >= 0 ? firstUnansweredIdx : 0;
 
+      const supportsProgress =
+        !shuffleQuestions &&
+        bankId &&
+        bankId !== 'all' &&
+        (mode === 'sequential' || mode === ('difficulty_asc' as string) || mode === ('difficulty_desc' as string)) &&
+        questions.length > 0;
+      const effectiveProgressMode = effectiveSortBy !== 'default' ? effectiveSortBy : mode;
+
       let lastProgressIndex = 0;
-      if (bankId && bankId !== 'all' && mode === 'sequential' && questions.length > 0) {
-        const { rows: progRows } = await db.query<{ last_question_index: number }>(
-          'SELECT last_question_index FROM user_bank_progress WHERE user_id = $1 AND bank_id = $2',
+      if (supportsProgress) {
+        const { rows: progRows } = await db.query<{ last_question_index: number; last_mode: string }>(
+          'SELECT last_question_index, last_mode FROM user_bank_progress WHERE user_id = $1 AND bank_id = $2',
           [userId, bankId]
         );
-        if (progRows.length > 0) {
+        if (progRows.length > 0 && String(progRows[0].last_mode || 'sequential') === effectiveProgressMode) {
           const saved = Number(progRows[0].last_question_index ?? 0);
           lastProgressIndex = saved >= 0 && saved < questions.length ? saved : 0;
         } else {
@@ -255,6 +300,9 @@ export function createPracticeRouter(db: DbClient): Router {
         questions,
         lastProgressIndex,
         nextUnansweredIndex,
+        sortBy: effectiveSortBy,
+        shuffled: shuffleQuestions,
+        shuffleSeed,
         total: questions.length,
       });
     } catch (err) {
@@ -312,6 +360,80 @@ export function createPracticeRouter(db: DbClient): Router {
     } catch (err) {
       console.error('[save practice progress]', err);
       res.status(500).json({ error: '保存刷题进度失败' });
+    }
+  });
+
+  router.post('/reset', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.userId;
+      const bankId = String(req.body?.bankId ?? '').trim();
+      const mode = String(req.body?.mode ?? 'sequential').trim() || 'sequential';
+      const questionIds: string[] = Array.isArray(req.body?.questionIds)
+        ? req.body.questionIds.map((x: unknown) => String(x).trim()).filter(Boolean)
+        : [];
+
+      let resetCount = 0;
+
+      if (bankId && bankId !== 'all') {
+        const { rows: bankRows } = await db.query<{ id: string }>(
+          `SELECT b.id
+           FROM question_banks b
+           WHERE b.id = $1 AND (
+             b.owner_id = $2
+             OR b.visibility = 'public'
+             OR EXISTS (SELECT 1 FROM bank_shares bs WHERE bs.bank_id = b.id AND bs.user_id = $2)
+             OR $3 = 'admin'
+           )`,
+          [bankId, userId, req.user!.role]
+        );
+        if (bankRows.length === 0) {
+          res.status(404).json({ error: '题库不存在或无权清空进度' });
+          return;
+        }
+
+        const updateRes =
+          questionIds.length > 0
+            ? await db.query(
+                `UPDATE user_question_records
+                 SET answered_count = 0, last_answer = NULL, last_is_correct = NULL, updated_at = NOW()
+                 WHERE user_id = $1 AND bank_id = $2 AND question_id = ANY($3::uuid[])`,
+                [userId, bankId, questionIds]
+              )
+            : await db.query(
+                `UPDATE user_question_records
+                 SET answered_count = 0, last_answer = NULL, last_is_correct = NULL, updated_at = NOW()
+                 WHERE user_id = $1 AND bank_id = $2`,
+                [userId, bankId]
+              );
+        resetCount = updateRes.rowCount ?? 0;
+
+        await db.query(
+          `INSERT INTO user_bank_progress (user_id, bank_id, last_question_index, last_mode, updated_at)
+           VALUES ($1, $2, 0, $3, NOW())
+           ON CONFLICT (user_id, bank_id) DO UPDATE SET
+             last_question_index = 0,
+             last_mode = EXCLUDED.last_mode,
+             updated_at = NOW()`,
+          [userId, bankId, mode]
+        );
+      } else {
+        if (questionIds.length === 0) {
+          res.status(400).json({ error: '请提供要清空进度的题目范围' });
+          return;
+        }
+        const updateRes = await db.query(
+          `UPDATE user_question_records
+           SET answered_count = 0, last_answer = NULL, last_is_correct = NULL, updated_at = NOW()
+           WHERE user_id = $1 AND question_id = ANY($2::uuid[])`,
+          [userId, questionIds]
+        );
+        resetCount = updateRes.rowCount ?? 0;
+      }
+
+      res.json({ ok: true, resetCount, lastQuestionIndex: 0 });
+    } catch (err) {
+      console.error('[reset practice progress]', err);
+      res.status(500).json({ error: '清空刷题进度失败' });
     }
   });
 

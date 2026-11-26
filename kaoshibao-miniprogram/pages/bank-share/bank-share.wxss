@@ -1,0 +1,63 @@
+.share-card {
+    padding: 32rpx 28rpx;
+}
+
+.share-preview {
+    margin-top: 22rpx;
+    padding: 32rpx 28rpx;
+}
+
+.share-desc {
+    display: block;
+    margin-top: 14rpx;
+    color: #64748B;
+    font-size: 24rpx;
+    line-height: 1.65;
+}
+
+.share-input {
+    height: 84rpx;
+    margin-top: 24rpx;
+    padding: 0 22rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 12rpx;
+    background: #FAFBFC;
+    color: #1E293B;
+    font-size: 28rpx;
+}
+
+.preview-title {
+    display: block;
+    color: #1E293B;
+    font-size: 32rpx;
+    font-weight: 700;
+}
+
+.preview-meta {
+    display: block;
+    margin-top: 12rpx;
+    color: #64748B;
+    font-size: 24rpx;
+}
+
+.preview-desc {
+    display: block;
+    margin-top: 16rpx;
+    color: #475569;
+    font-size: 26rpx;
+    line-height: 1.6;
+}
+
+.share-tip {
+    display: block;
+    margin-top: 20rpx;
+    color: #12B76A;
+    font-size: 24rpx;
+}
+
+.share-error {
+    display: block;
+    margin-top: 20rpx;
+    color: #F56C6C;
+    font-size: 24rpx;
+}

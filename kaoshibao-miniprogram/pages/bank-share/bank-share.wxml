@@ -1,0 +1,43 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap">
+    <view class="card share-card">
+        <text class="title-md">通过分享码加入题库</text>
+        <text class="share-desc">输入组织者提供的分享码，加入后即可在手机上刷题；支持带访问口令的私密分享。</text>
+        <input
+            class="share-input"
+            type="text"
+            placeholder="题库分享码"
+            placeholder-class="ph"
+            value="{{code}}"
+            bindinput="onCodeInput"
+            bindconfirm="lookup"
+        />
+        <button class="btn btn-primary btn-block mt24" loading="{{loading}}" disabled="{{loading}}" bindtap="lookup">查询题库</button>
+        <text class="share-error" wx:if="{{errorText}}">{{errorText}}</text>
+    </view>
+
+    <view class="card share-preview" wx:if="{{preview}}">
+        <text class="preview-title">{{preview.title}}</text>
+        <text class="preview-meta">{{preview.category}} · {{preview.ownerName}} · {{preview.questionCount}} 题</text>
+        <text class="preview-desc" wx:if="{{preview.description}}">{{preview.description}}</text>
+        <text class="share-tip" wx:if="{{tipText}}">{{tipText}}</text>
+        <input
+            wx:if="{{requiresPassword}}"
+            class="share-input"
+            password="{{true}}"
+            placeholder="私密访问口令"
+            placeholder-class="ph"
+            value="{{password}}"
+            bindinput="onPasswordInput"
+        />
+        <button wx:if="{{preview.alreadyAccessible}}" class="btn btn-primary btn-block mt24" bindtap="openBank">打开题库</button>
+        <button wx:else class="btn btn-primary btn-block mt24" loading="{{joining}}" disabled="{{joining}}" bindtap="join">加入并打开</button>
+    </view>
+
+    <button class="btn btn-plain btn-block mt24" bindtap="goBack">返回</button>
+</view>
+</block>

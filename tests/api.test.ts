@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createDbClient, type DbClient } from '../src/server/db/client.js';
@@ -32,6 +32,7 @@ import {
   isReleaseNewer,
   syncLatestApkFromGitHub,
 } from '../src/server/services/appUpdate.js';
+import { formatCodeSnippet, normalizeCodeInText } from '../src/shared/codeFormatter.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -2242,7 +2243,7 @@ HTTP 默认端口是{=80}。`;
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           githubRepo: 'example-org/prismq-community',
-          githubToken: 'test-github-token-123',
+          githubToken: 'ghp_test_token_123456',
           enabled: true,
           pollIntervalMinutes: 10,
         });
@@ -2256,7 +2257,7 @@ HTTP 默认端口是{=80}。`;
         const url = typeof input === 'string' ? input : input.toString();
         const hdrs = (init?.headers || {}) as Record<string, string>;
         if (url === 'https://api.github.com/repos/example-org/prismq-community/releases/latest') {
-          expect(hdrs.Authorization).toBe('Bearer test-github-token-123');
+          expect(hdrs.Authorization).toBe('Bearer ghp_test_token_123456');
           return new Response(
             JSON.stringify({
               tag_name: 'v2.3.0',
@@ -2276,7 +2277,7 @@ HTTP 默认端口是{=80}。`;
           );
         }
         if (url === 'https://api.github.com/repos/example-org/prismq-community/releases/assets/99') {
-          expect(hdrs.Authorization).toBe('Bearer test-github-token-123');
+          expect(hdrs.Authorization).toBe('Bearer ghp_test_token_123456');
           return new Response(null, {
             status: 302,
             headers: { Location: 'https://objects.githubusercontent.com/signed/prismq.apk' },
@@ -2359,6 +2360,750 @@ HTTP 默认端口是{=80}。`;
       } else {
         process.env.APP_UPDATE_CACHE_DIR = prevCacheDir;
       }
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  describe('微信一键登录', () => {
+    const APPID = 'wx-test-appid';
+    const SECRET = 'test-appsecret';
+    const OPENID = 'OPENID_TEST_WECHAT_LOGIN_1';
+    let prevAppId: string | undefined;
+    let prevSecret: string | undefined;
+
+    beforeAll(() => {
+      prevAppId = process.env.WECHAT_APPID;
+      prevSecret = process.env.WECHAT_APPSECRET;
+    });
+
+    afterAll(() => {
+      if (prevAppId === undefined) delete process.env.WECHAT_APPID;
+      else process.env.WECHAT_APPID = prevAppId;
+      if (prevSecret === undefined) delete process.env.WECHAT_APPSECRET;
+      else process.env.WECHAT_APPSECRET = prevSecret;
+      vi.unstubAllGlobals();
+    });
+
+    it('未配置 AppID/AppSecret 时返回 501，且不向客户端暴露入口', async () => {
+      delete process.env.WECHAT_APPID;
+      delete process.env.WECHAT_APPSECRET;
+      const res = await request(app).post('/api/auth/wechat-login').send({ code: 'any-code' });
+      expect(res.status).toBe(501);
+      const boot = await request(app).get('/api/auth/bootstrap-status');
+      expect(boot.status).toBe(200);
+      expect(boot.body.wechatLoginEnabled).toBe(false);
+    });
+
+    it('首次登录自动建号并签发 JWT，再次登录复用同一账号', async () => {
+      process.env.WECHAT_APPID = APPID;
+      process.env.WECHAT_APPSECRET = SECRET;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => ({ openid: OPENID }) }))
+      );
+
+      const boot = await request(app).get('/api/auth/bootstrap-status');
+      expect(boot.body.wechatLoginEnabled).toBe(true);
+
+      const first = await request(app).post('/api/auth/wechat-login').send({ code: 'code-1' });
+      expect(first.status).toBe(200);
+      expect(typeof first.body.token).toBe('string');
+      expect(first.body.isNewUser).toBe(true);
+      expect(first.body.user.username).toMatch(/^wx_[0-9a-f]{16}$/);
+      expect(first.body.user.email).toContain('@wechat.invalid');
+
+      const me = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${first.body.token}`);
+      expect(me.status).toBe(200);
+      expect(me.body.user.id).toBe(first.body.user.id);
+
+      const second = await request(app).post('/api/auth/wechat-login').send({ code: 'code-2' });
+      expect(second.status).toBe(200);
+      expect(second.body.isNewUser).toBe(false);
+      expect(second.body.user.id).toBe(first.body.user.id);
+    });
+
+    it('微信返回无效 code 时透出 401，不创建账号', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => ({ errcode: 40029, errmsg: 'invalid code' }) }))
+      );
+      const res = await request(app).post('/api/auth/wechat-login').send({ code: 'stale-code' });
+      expect(res.status).toBe(401);
+    });
+
+    it('缺少 code 时返回 400', async () => {
+      const res = await request(app).post('/api/auth/wechat-login').send({});
+      expect(res.status).toBe(400);
+    });
+
+    it('并发首次微信登录同一 openid 不会触发唯一键冲突并复用同一账号', async () => {
+      process.env.WECHAT_APPID = APPID;
+      process.env.WECHAT_APPSECRET = SECRET;
+      const concurrentOpenId = 'OPENID_TEST_WECHAT_CONCURRENT_1';
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => ({ openid: concurrentOpenId }) }))
+      );
+
+      const r1Promise = request(app).post('/api/auth/wechat-login').send({ code: 'c-1' });
+      const r2Promise = request(app).post('/api/auth/wechat-login').send({ code: 'c-2' });
+      const [r1, r2] = await Promise.all([r1Promise, r2Promise]);
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      expect(r1.body.user.id).toBe(r2.body.user.id);
+    });
+  });
+
+  it('按难度排序（由易到难 / 由难到易）并支持对应排序断点续刷恢复', async () => {
+    const bankRes = await request(app)
+      .post('/api/banks')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ title: '难度排序专测题库', category: '专项', visibility: 'private' });
+    expect(bankRes.status).toBe(201);
+    const sortBankId = bankRes.body.id as string;
+
+    const addQ = await request(app)
+      .post(`/api/banks/${sortBankId}/questions/batch`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        questions: [
+          {
+            type: 'single',
+            stem: '难题 Q3',
+            options: [{ key: 'A', content: 'A' }, { key: 'B', content: 'B' }],
+            answer: 'A',
+            difficulty: 5,
+          },
+          {
+            type: 'single',
+            stem: '基础题 Q1',
+            options: [{ key: 'A', content: 'A' }, { key: 'B', content: 'B' }],
+            answer: 'A',
+            difficulty: 1,
+          },
+          {
+            type: 'single',
+            stem: '中等题 Q2',
+            options: [{ key: 'A', content: 'A' }, { key: 'B', content: 'B' }],
+            answer: 'A',
+            difficulty: 3,
+          },
+        ],
+      });
+    expect(addQ.status).toBe(201);
+
+    const ascRes = await request(app)
+      .get(`/api/practice/session?bankId=${sortBankId}&mode=sequential&sortBy=difficulty_asc`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(ascRes.status).toBe(200);
+    expect(ascRes.body.questions.map((q: { stem: string }) => q.stem)).toEqual([
+      '基础题 Q1',
+      '中等题 Q2',
+      '难题 Q3',
+    ]);
+
+    const descRes = await request(app)
+      .get(`/api/practice/session?bankId=${sortBankId}&mode=sequential&sortBy=difficulty_desc`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(descRes.status).toBe(200);
+    expect(descRes.body.questions.map((q: { stem: string }) => q.stem)).toEqual([
+      '难题 Q3',
+      '中等题 Q2',
+      '基础题 Q1',
+    ]);
+
+    const saveProg = await request(app)
+      .put('/api/practice/progress')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ bankId: sortBankId, currentIndex: 2, mode: 'difficulty_asc' });
+    expect(saveProg.status).toBe(200);
+
+    const resumedAsc = await request(app)
+      .get(`/api/practice/session?bankId=${sortBankId}&mode=sequential&sortBy=difficulty_asc`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resumedAsc.status).toBe(200);
+    expect(resumedAsc.body.lastProgressIndex).toBe(2);
+  });
+
+  it('代码规范化格式化、单次乱序练习与题库二维码/公开口令分享均正常工作', async () => {
+    const formattedSnippet = formatCodeSnippet(
+      'public class Demo{public static void main(String[] args){int a=1;if(a>0){System.out.println(a);}}}',
+      'java'
+    );
+    expect(formattedSnippet).toContain('\n');
+    expect(formattedSnippet).toContain('  public static void main');
+
+    const normalized = normalizeCodeInText(
+      '以下程序输出为：```cpp\n#include<stdio.h> int main(){int x=1;return 0;}\n```'
+    );
+    expect(normalized).toContain('```cpp');
+    expect(normalized).toContain('  int x=1;');
+
+    const codeBankRes = await request(app)
+      .post('/api/banks')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ title: 'C语言代码与分享专测库', category: '编程', visibility: 'public' });
+    expect(codeBankRes.status).toBe(201);
+    const codeBankId = codeBankRes.body.id as string;
+
+    const addBatch = await request(app)
+      .post(`/api/banks/${codeBankId}/questions/batch`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        questions: [
+          {
+            type: 'single',
+            stem: '阅读程序：#include <stdio.h> int main(){int s=0;for(int i=1;i<=3;i++){s+=i;}return 0;}',
+            options: [{ key: 'A', content: '6' }, { key: 'B', content: '3' }],
+            answer: 'A',
+          },
+          {
+            type: 'single',
+            stem: '第二题：指针基础 int *p = NULL;',
+            options: [{ key: 'A', content: '正确' }, { key: 'B', content: '错误' }],
+            answer: 'A',
+          },
+          {
+            type: 'single',
+            stem: '第三题：数组声明',
+            options: [{ key: 'A', content: '正确' }, { key: 'B', content: '错误' }],
+            answer: 'A',
+          },
+          {
+            type: 'single',
+            stem: '第四题：条件分支',
+            options: [{ key: 'A', content: '正确' }, { key: 'B', content: '错误' }],
+            answer: 'A',
+          },
+        ],
+      });
+    expect(addBatch.status).toBe(201);
+
+    // 显式执行题库代码标准化梳理接口
+    const formatRes = await request(app)
+      .post(`/api/banks/${codeBankId}/format-code`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+    expect(formatRes.status).toBe(200);
+    expect(formatRes.body.ok).toBe(true);
+    expect(formatRes.body.scannedCount).toBe(4);
+
+    // 二维码分享：公开题库与私有题库均应支持
+    const qrRes = await request(app)
+      .get(`/api/banks/${codeBankId}/share-qrcode`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(qrRes.status).toBe(200);
+    expect(qrRes.body.shareCode).toBeTruthy();
+    expect(qrRes.body.qrDataUrl).toMatch(/^data:image\/png;base64,/);
+
+    // 先保存顺序断点为 index=2，再执行 shuffleQuestions=true 乱序练习，确认不会破坏顺序断点
+    await request(app)
+      .put('/api/practice/progress')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ bankId: codeBankId, currentIndex: 2, mode: 'sequential' });
+
+    const shuffleRes = await request(app)
+      .get(`/api/practice/session?bankId=${codeBankId}&mode=sequential&shuffleQuestions=true`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(shuffleRes.status).toBe(200);
+    expect(shuffleRes.body.shuffled).toBe(true);
+    expect(shuffleRes.body.shuffleSeed).toBeTruthy();
+    expect(shuffleRes.body.questions).toHaveLength(4);
+
+    const checkSeq = await request(app)
+      .get(`/api/practice/session?bankId=${codeBankId}&mode=sequential`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(checkSeq.status).toBe(200);
+    expect(checkSeq.body.lastProgressIndex).toBe(2);
+  });
+
+  it('全流程严谨考试：任意用户发起、时间窗/模拟器拦截、小窗/切屏监控、发起者主动终结并核算正确率', async () => {
+    // 1. 普通成员基于公开题库发起考试，设置时间窗 + 拦截虚拟机/模拟器 + 严格防作弊
+    const now = Date.now();
+    const createRes = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        bankId: publicBankId,
+        title: '成员发起严谨结课考',
+        examType: 'published',
+        totalQuestions: 2,
+        durationMinutes: 30,
+        startsAt: new Date(now - 60_000).toISOString(),
+        endsAt: new Date(now + 3600_000).toISOString(),
+        maxTabSwitches: 3,
+        blockEmulator: true,
+        strictAntiCheat: true,
+        autoSubmitOnCheat: true,
+      });
+    expect(createRes.status).toBe(201);
+    const customExamId = createRes.body.id as string;
+    const customCode = createRes.body.shareCode as string;
+    expect(customCode).toBeTruthy();
+    expect(createRes.body.blockEmulator).toBe(true);
+
+    // 获取考试分享二维码
+    const examQrRes = await request(app)
+      .get(`/api/exams/${customExamId}/qrcode`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(examQrRes.status).toBe(200);
+    expect(examQrRes.body.qrDataUrl).toMatch(/^data:image\/png;base64,/);
+
+    // 2. 模拟器环境尝试入场应被拦截返回 403
+    const emuStart = await request(app)
+      .post(`/api/exams/join/${customCode}/start`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        participantName: '模拟器测试号',
+        deviceInfo: {
+          platform: 'android',
+          deviceLabel: 'sdk_gphone64_x86_64',
+          isEmulator: true,
+          reasons: ['emulator_build_fingerprint'],
+        },
+      });
+    expect(emuStart.status).toBe(403);
+    expect(String(emuStart.body.error || '')).toContain('虚拟机');
+
+    // 3. 正常真机入场，拉取考卷并上报答题草稿与小窗/切屏事件
+    const paperRes = await request(app)
+      .get(`/api/exams/join/${customCode}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(paperRes.status).toBe(200);
+    const examQuestions = paperRes.body.questions as Array<{ questionId: string; answer?: string }>;
+    expect(examQuestions.length).toBeGreaterThan(0);
+
+    const startRes = await request(app)
+      .post(`/api/exams/join/${customCode}/start`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        participantName: '在考同学甲',
+        deviceInfo: {
+          platform: 'android',
+          deviceLabel: 'Xiaomi 14',
+          isEmulator: false,
+          isMultiWindow: false,
+        },
+      });
+    expect([200, 201]).toContain(startRes.status);
+    const sessionId = startRes.body.sessionId as string;
+    expect(sessionId).toBeTruthy();
+
+    const firstQid = examQuestions[0].questionId;
+    const hbRes = await request(app)
+      .post(`/api/exams/join/${customCode}/heartbeat`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        sessionId,
+        answers: { [firstQid]: 'A' },
+        tabSwitchCount: 1,
+        cheatEvents: [
+          { type: 'small_window', detail: '检测到分屏/小窗运行 (320x500)', timestamp: new Date().toISOString() },
+        ],
+        deviceInfo: { platform: 'android', isMultiWindow: true, reasons: ['small_window'] },
+      });
+    expect(hbRes.status).toBe(200);
+    expect(hbRes.body.examStatus).toBe('active');
+    expect(hbRes.body.terminated).toBe(false);
+
+    // 4. 发起者在考试进行中查看考情，应看到在考人数=1 与风险标记
+    const liveAnalytics = await request(app)
+      .get(`/api/exams/${customExamId}/analytics`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(liveAnalytics.status).toBe(200);
+    expect(liveAnalytics.body.summary.inProgressCount).toBe(1);
+    expect(liveAnalytics.body.activeSessions).toHaveLength(1);
+    expect(liveAnalytics.body.activeSessions[0].riskFlags).toContain('small_window');
+
+    // 5. 发起者主动终结考试，自动结算在考考生草稿
+    const termRes = await request(app)
+      .post(`/api/exams/${customExamId}/terminate`)
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({});
+    expect(termRes.status).toBe(200);
+    expect(termRes.body.status).toBe('closed');
+    expect(termRes.body.terminatedCount).toBe(1);
+
+    // 6. 考生下一次心跳立即收到终结通知与提交记录 ID
+    const hbAfterTerm = await request(app)
+      .post(`/api/exams/join/${customCode}/heartbeat`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ sessionId });
+    expect(hbAfterTerm.status).toBe(200);
+    expect(hbAfterTerm.body.terminated).toBe(true);
+    expect(hbAfterTerm.body.submissionId).toBeTruthy();
+
+    // 7. 发起者再次查看考情，应包含正确率、avgAccuracy、逐题 correctRate 与被终结标记
+    const finalAnalytics = await request(app)
+      .get(`/api/exams/${customExamId}/analytics`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(finalAnalytics.status).toBe(200);
+    expect(finalAnalytics.body.summary.submissionCount).toBe(1);
+    expect(finalAnalytics.body.summary.inProgressCount).toBe(0);
+    expect(typeof finalAnalytics.body.summary.avgAccuracy).toBe('number');
+    expect(finalAnalytics.body.submissions[0].terminatedByCreator).toBe(true);
+    expect(finalAnalytics.body.submissions[0].riskFlags).toContain('multi_window');
+    expect(finalAnalytics.body.submissions[0].riskFlags).toContain('small_window');
+    expect(typeof finalAnalytics.body.questionStats[0].correctRate).toBe('number');
+  });
+
+  it('自由自测按题型自选出题数与分值（单选/判断等）、个人自测免严格防作弊及交卷判分正常', async () => {
+    const bankRes = await request(app)
+      .post('/api/banks')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ title: '自测组卷专测题库', category: '自测', visibility: 'private' });
+    expect(bankRes.status).toBe(201);
+    const selfBankId = bankRes.body.id as string;
+
+    await request(app)
+      .post(`/api/banks/${selfBankId}/questions/batch`)
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        questions: [
+          {
+            type: 'single',
+            stem: '自测单选 1',
+            options: [{ key: 'A', content: 'A' }, { key: 'B', content: 'B' }],
+            answer: 'A',
+          },
+          {
+            type: 'single',
+            stem: '自测单选 2',
+            options: [{ key: 'A', content: 'A' }, { key: 'B', content: 'B' }],
+            answer: 'B',
+          },
+          {
+            type: 'single',
+            stem: '自测单选 3',
+            options: [{ key: 'A', content: 'A' }, { key: 'B', content: 'B' }],
+            answer: 'A',
+          },
+          {
+            type: 'boolean',
+            stem: '自测判断 1',
+            options: [{ key: 'A', content: '正确' }, { key: 'B', content: '错误' }],
+            answer: 'A',
+          },
+          {
+            type: 'boolean',
+            stem: '自测判断 2',
+            options: [{ key: 'A', content: '正确' }, { key: 'B', content: '错误' }],
+            answer: 'B',
+          },
+        ],
+      });
+
+    const createSelfRes = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        bankId: selfBankId,
+        title: '高数基础自由自测卷',
+        examType: 'mock',
+        counts: { single: 2, boolean: 1 },
+        questionScores: { single: 3, boolean: 2 },
+        durationMinutes: 25,
+        shuffleQuestions: true,
+        shuffleOptions: true,
+      });
+
+    expect(createSelfRes.status).toBe(201);
+    expect(createSelfRes.body.examType).toBe('mock');
+    expect(createSelfRes.body.questionCount).toBe(3);
+    expect(createSelfRes.body.totalScore).toBe(8);
+    expect(createSelfRes.body.typeBreakdown).toEqual({
+      single: 2,
+      multiple: 0,
+      boolean: 1,
+      fill: 0,
+      short: 0,
+    });
+    expect(createSelfRes.body.strictAntiCheat).toBe(false);
+    expect(createSelfRes.body.autoSubmitOnCheat).toBe(false);
+
+    const selfCode = createSelfRes.body.shareCode as string;
+    const paperRes = await request(app)
+      .get(`/api/exams/join/${selfCode}`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(paperRes.status).toBe(200);
+    expect(paperRes.body.exam.examType).toBe('mock');
+    expect(paperRes.body.exam.strictAntiCheat).toBe(false);
+    expect(paperRes.body.questions).toHaveLength(3);
+
+    const subRes = await request(app)
+      .post(`/api/exams/join/${selfCode}/submit`)
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        participantName: '自测同学',
+        answers: {
+          [paperRes.body.questions[0].questionId]: 'A',
+        },
+        durationSeconds: 30,
+        tabSwitchCount: 0,
+      });
+    expect(subRes.status).toBe(201);
+    expect(subRes.body.submission.totalQuestions).toBe(3);
+    expect(typeof subRes.body.submission.accuracy).toBe('number');
+  });
+
+  it('AI 一键解析支持题目ID失效或无权访问时回退到试卷快照字段，无快照时返回 404', async () => {
+    const origFetch = globalThis.fetch;
+    await request(app)
+      .put('/api/auth/settings')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        aiConfig: {
+          baseUrl: 'https://api.deepseek.com',
+          apiKey: 'sk-test-explain-fallback',
+          model: 'deepseek-chat',
+        },
+      });
+
+    try {
+      const emptyRes = await request(app)
+        .post('/api/ai/explain')
+        .set('Authorization', `Bearer ${memberToken}`)
+        .send({});
+      expect(emptyRes.status).toBe(400);
+
+      const missingNoStemRes = await request(app)
+        .post('/api/ai/explain')
+        .set('Authorization', `Bearer ${memberToken}`)
+        .send({ questionId: '00000000-0000-4000-8000-000000000999' });
+      expect(missingNoStemRes.status).toBe(404);
+
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: 'stop',
+                message: {
+                  role: 'assistant',
+                  content: JSON.stringify({
+                    keyPoint: 'Java 数组 length 属性',
+                    analysis: '数组对象通过只读字段 `length` 获取容量，而不是 `length()` 方法。',
+                    mnemonic: '数组长度没括号，字符串才有括号',
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )) as typeof fetch;
+
+      const fallbackRes = await request(app)
+        .post('/api/ai/explain')
+        .set('Authorization', `Bearer ${memberToken}`)
+        .send({
+          questionId: '00000000-0000-4000-8000-000000000999',
+          userAnswer: 'B',
+          saveToQuestion: false,
+          type: 'single',
+          stem: 'Java 中数组长度属性是？',
+          options: [
+            { key: 'A', content: 'length' },
+            { key: 'B', content: 'length()' },
+          ],
+          answer: 'A',
+          explanation: '数组通过 length 获取元素个数',
+        });
+
+      expect(fallbackRes.status).toBe(200);
+      expect(fallbackRes.body.keyPoint).toBe('Java 数组 length 属性');
+      expect(fallbackRes.body.analysis).toContain('length');
+      expect(fallbackRes.body.mnemonic).toBe('数组长度没括号，字符串才有括号');
+    } finally {
+      globalThis.fetch = origFetch;
+      await request(app)
+        .put('/api/auth/settings')
+        .set('Authorization', `Bearer ${memberToken}`)
+        .send({ aiConfig: { baseUrl: '', apiKey: '', model: '' } });
+    }
+  });
+
+  it('一键清空刷题进度接口支持清空题库作答与断点进度同时保留收藏和笔记', async () => {
+    const bankRes = await request(app)
+      .post('/api/banks')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        title: '清空进度测试题库',
+        category: '计算机',
+        visibility: 'private',
+      });
+    expect(bankRes.status).toBe(201);
+    const resetBankId = bankRes.body.id as string;
+
+    const batchRes = await request(app)
+      .post(`/api/banks/${resetBankId}/questions/batch`)
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        questions: [
+          {
+            type: 'single',
+            stem: '重刷测试第1题',
+            options: [{ key: 'A', content: '甲' }, { key: 'B', content: '乙' }],
+            answer: 'A',
+          },
+          {
+            type: 'single',
+            stem: '重刷测试第2题',
+            options: [{ key: 'A', content: '丙' }, { key: 'B', content: '丁' }],
+            answer: 'B',
+          },
+        ],
+      });
+    expect(batchRes.status).toBe(201);
+
+    const sessionBefore = await request(app)
+      .get(`/api/practice/session?bankId=${resetBankId}&mode=sequential`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(sessionBefore.status).toBe(200);
+    const qIds = (sessionBefore.body.questions as Array<{ id: string }>).map((q) => q.id);
+    expect(qIds).toHaveLength(2);
+
+    await request(app)
+      .post('/api/practice/answer')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ questionId: qIds[0], answer: 'A', currentIndex: 1, mode: 'sequential' });
+
+    await request(app)
+      .post('/api/practice/toggle')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ questionId: qIds[0], action: 'favorite', value: true });
+
+    await request(app)
+      .put('/api/practice/note')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ questionId: qIds[0], note: '保留笔记内容' });
+
+    await request(app)
+      .put('/api/practice/progress')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ bankId: resetBankId, currentIndex: 1, mode: 'sequential' });
+
+    const resetRes = await request(app)
+      .post('/api/practice/reset')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ bankId: resetBankId, mode: 'sequential' });
+    expect(resetRes.status).toBe(200);
+    expect(resetRes.body.ok).toBe(true);
+    expect(resetRes.body.lastQuestionIndex).toBe(0);
+
+    const sessionAfter = await request(app)
+      .get(`/api/practice/session?bankId=${resetBankId}&mode=sequential`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(sessionAfter.status).toBe(200);
+    expect(sessionAfter.body.lastProgressIndex).toBe(0);
+    const firstQ = sessionAfter.body.questions[0];
+    expect(firstQ.record.answeredCount).toBe(0);
+    expect(firstQ.record.lastAnswer).toBeNull();
+    expect(firstQ.record.lastIsCorrect).toBeNull();
+    expect(firstQ.record.isFavorited).toBe(true);
+    expect(firstQ.record.note).toBe('保留笔记内容');
+
+    // 验证清空后正确率不会被除数归零放大超过 100%
+    const dashAfterReset = await request(app)
+      .get('/api/practice/dashboard')
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(dashAfterReset.status).toBe(200);
+    expect(dashAfterReset.body.stats.accuracy).toBeLessThanOrEqual(100);
+    expect(dashAfterReset.body.stats.accuracy).toBeGreaterThanOrEqual(0);
+
+    // 验证错题练习不带入历史作答记录（避免一进去直接显示旧答案和已做状态）
+    const wrongAnsRes = await request(app)
+      .post('/api/practice/answer')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ questionId: qIds[1], answer: 'A', currentIndex: 1, mode: 'sequential' });
+    expect(wrongAnsRes.status).toBe(200);
+    expect(wrongAnsRes.body.isCorrect).toBe(false);
+
+    const mistakesSession = await request(app)
+      .get('/api/practice/session?bankId=all&mode=mistakes')
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(mistakesSession.status).toBe(200);
+    const wrongItem = (mistakesSession.body.questions as Array<{
+      id: string;
+      record?: {
+        answeredCount: number;
+        lastAnswer: string | null;
+        lastIsCorrect: boolean | null;
+        inMistakeBook: boolean;
+        wrongCount: number;
+      };
+    }>).find((item) => item.id === qIds[1]);
+    expect(wrongItem).toBeDefined();
+    expect(wrongItem!.record?.inMistakeBook).toBe(true);
+    expect(wrongItem!.record?.wrongCount).toBeGreaterThanOrEqual(1);
+    expect(wrongItem!.record?.answeredCount).toBe(0);
+    expect(wrongItem!.record?.lastAnswer).toBeNull();
+    expect(wrongItem!.record?.lastIsCorrect).toBeNull();
+  });
+
+  it('支持管理员直接上传 APK 到服务器、扫描本地目录并向客户端推送可选更新（不依赖 GitHub）', async () => {
+    const prevCacheDir = process.env.APP_UPDATE_CACHE_DIR;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prismq-selfhost-'));
+    process.env.APP_UPDATE_CACHE_DIR = tmpDir;
+
+    try {
+      const apkPayload = Buffer.from('PK\x03\x04prismq-self-hosted-release-2.5.0-payload');
+
+      const memberUpload = await request(app)
+        .post('/api/app-update/admin/upload')
+        .set('Authorization', `Bearer ${memberToken}`)
+        .attach('file', apkPayload, 'prismq-v2.5.0.apk');
+      expect(memberUpload.status).toBe(403);
+
+      const uploadRes = await request(app)
+        .post('/api/app-update/admin/upload')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .field('versionName', '2.5.0')
+        .field('versionCode', '20')
+        .field('releaseNotes', '服务器自托管直连推送更新')
+        .field('forceUpdate', 'false')
+        .attach('file', apkPayload, 'prismq-v2.5.0.apk');
+
+      expect(uploadRes.status).toBe(201);
+      expect(uploadRes.body.ok).toBe(true);
+      expect(uploadRes.body.latest.versionName).toBe('2.5.0');
+      expect(uploadRes.body.latest.versionCode).toBe(20);
+      expect(uploadRes.body.latest.forceUpdate).toBe(false);
+      expect(uploadRes.body.latest.downloadUrl).toBe('/api/app-update/download');
+
+      const latestRes = await request(app).get(
+        '/api/app-update/latest?currentVersion=2.4.0&currentVersionCode=8'
+      );
+      expect(latestRes.status).toBe(200);
+      expect(latestRes.body.hasUpdate).toBe(true);
+      expect(latestRes.body.latest.versionName).toBe('2.5.0');
+      expect(latestRes.body.latest.forceUpdate).toBe(false);
+
+      const dlRes = await request(app)
+        .get('/api/app-update/download')
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+      expect(dlRes.status).toBe(200);
+      expect(Buffer.isBuffer(dlRes.body)).toBe(true);
+      expect((dlRes.body as Buffer).equals(apkPayload)).toBe(true);
+      expect(dlRes.headers['x-apk-sha256']).toBe(uploadRes.body.latest.sha256);
+
+      // 测试管理员点击扫描本地目录并强制推送（不发起任何 GitHub 请求）
+      const syncLocalRes = await request(app)
+        .post('/api/app-update/admin/sync')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(syncLocalRes.status).toBe(200);
+      expect(syncLocalRes.body.ok).toBe(true);
+      expect(syncLocalRes.body.latest.versionName).toBe('2.5.0');
+      expect(syncLocalRes.body.latest.forceUpdate).toBe(false);
+    } finally {
+      if (prevCacheDir === undefined) delete process.env.APP_UPDATE_CACHE_DIR;
+      else process.env.APP_UPDATE_CACHE_DIR = prevCacheDir;
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });

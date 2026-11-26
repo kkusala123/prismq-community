@@ -17,6 +17,8 @@ export const SCHEMA_STATEMENTS: string[] = [
   );`,
 
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS wechat_openid TEXT;`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wechat_openid ON users (wechat_openid) WHERE wechat_openid IS NOT NULL;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS total_active_seconds BIGINT NOT NULL DEFAULT 0;`,
 
@@ -229,4 +231,36 @@ export const SCHEMA_STATEMENTS: string[] = [
 
   // 清理历史版本因部分更新 JSON 传入 null 而导致的 "null" 字符串昵称
   `UPDATE users SET nickname = username WHERE BTRIM(COALESCE(nickname, '')) = '' OR LOWER(BTRIM(nickname)) IN ('null', 'undefined');`,
+
+  // 考试完善配置、防小窗/虚拟机风控与实时监考会话
+  `ALTER TABLE exams ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ;`,
+  `ALTER TABLE exams ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ;`,
+  `ALTER TABLE exams ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;`,
+  `ALTER TABLE exams ADD COLUMN IF NOT EXISTS block_emulator BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE exams ADD COLUMN IF NOT EXISTS strict_anti_cheat BOOLEAN NOT NULL DEFAULT TRUE;`,
+  `ALTER TABLE exams ADD COLUMN IF NOT EXISTS auto_submit_on_cheat BOOLEAN NOT NULL DEFAULT TRUE;`,
+
+  `ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS accuracy NUMERIC(5,1) NOT NULL DEFAULT 0;`,
+  `ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS cheat_events JSONB NOT NULL DEFAULT '[]'::jsonb;`,
+  `ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS device_info JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+  `ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS risk_flags JSONB NOT NULL DEFAULT '[]'::jsonb;`,
+  `ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS terminated_by_creator BOOLEAN NOT NULL DEFAULT FALSE;`,
+
+  `CREATE TABLE IF NOT EXISTS exam_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    exam_id UUID NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    participant_name TEXT NOT NULL,
+    participant_identifier TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    draft_answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+    tab_switch_count INTEGER NOT NULL DEFAULT 0,
+    cheat_events JSONB NOT NULL DEFAULT '[]'::jsonb,
+    device_info JSONB NOT NULL DEFAULT '{}'::jsonb,
+    risk_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    submission_id UUID REFERENCES exam_submissions(id) ON DELETE SET NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_exam_sessions_exam_status ON exam_sessions(exam_id, status);`,
 ];

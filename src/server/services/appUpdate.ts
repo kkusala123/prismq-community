@@ -197,9 +197,9 @@ export async function getStoredUpdateConfig(db: DbClient): Promise<{
   const repoCandidate = (stored.githubRepo ?? appCfg.githubRepo ?? '').trim();
   const pollRaw = stored.pollIntervalMinutes ?? appCfg.appUpdatePollIntervalMinutes ?? 15;
   return {
-    githubRepo: repoCandidate && GITHUB_REPO_RE.test(repoCandidate) ? repoCandidate : '',
+    githubRepo: GITHUB_REPO_RE.test(repoCandidate) ? repoCandidate : '',
     githubToken: (stored.githubToken ?? appCfg.githubToken ?? '').trim(),
-    enabled: stored.enabled !== undefined ? Boolean(stored.enabled) : appCfg.appUpdateEnabled,
+    enabled: stored.enabled !== undefined ? Boolean(stored.enabled) : true,
     pollIntervalMinutes: Math.max(1, Math.min(1440, Number(pollRaw) || 15)),
     forceUpdateMinVersion: (stored.forceUpdateMinVersion ?? '').trim(),
   };
@@ -244,7 +244,7 @@ export async function updateAdminUpdateConfig(
   let nextRepo = current.githubRepo;
   if (patch.githubRepo !== undefined) {
     const trimmed = patch.githubRepo.trim();
-    if (trimmed && !GITHUB_REPO_RE.test(trimmed)) {
+    if (!GITHUB_REPO_RE.test(trimmed)) {
       throw new Error('GitHub 仓库格式必须为 owner/repo');
     }
     nextRepo = trimmed;
@@ -398,6 +398,338 @@ function pruneOldCacheDirs(cacheRoot: string, keepTagDir: string): void {
   }
 }
 
+export async function publishUploadedApk(
+  db: DbClient,
+  params: {
+    buffer: Buffer;
+    originalFileName: string;
+    versionName?: string;
+    versionCode?: number;
+    releaseNotes?: string;
+    forceUpdate?: boolean;
+    cacheDir?: string;
+  }
+): Promise<AppUpdateSyncResult> {
+  if (!params.buffer || params.buffer.length === 0) {
+    throw new Error('上传的 APK 文件不能为空');
+  }
+  const origName = String(params.originalFileName || 'prismq.apk').trim();
+  if (!origName.toLowerCase().endsWith('.apk')) {
+    throw new Error('仅支持上传 .apk 安装包文件');
+  }
+  if (
+    params.buffer.length < 4 ||
+    params.buffer[0] !== 0x50 ||
+    params.buffer[1] !== 0x4b ||
+    params.buffer[2] !== 0x03 ||
+    params.buffer[3] !== 0x04
+  ) {
+    throw new Error('APK 文件格式校验失败，请确认上传完整的 Android 安装包');
+  }
+
+  const nameMatch = /v?(\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)/i.exec(origName);
+  const rawVer = String(params.versionName || '').trim() || (nameMatch ? nameMatch[1] : '');
+  if (!rawVer || !/\d+\.\d+/.test(rawVer)) {
+    throw new Error('请填写版本号（如 2.4.4）或确保文件名包含版本号（如 prismq-v2.4.4.apk）');
+  }
+
+  const versionName = normalizeVersionName(rawVer);
+  const tagName = `v${versionName}`;
+  const notes = String(params.releaseNotes || '').trim();
+  const explicitCode = Number(params.versionCode || 0);
+  const versionCode =
+    Number.isFinite(explicitCode) && explicitCode > 0
+      ? Math.floor(explicitCode)
+      : parseVersionCode(notes, versionName);
+  const forceUpdate = Boolean(params.forceUpdate);
+  const checkedAt = new Date().toISOString();
+
+  const safeTagDir = sanitizeSegment(tagName, 'latest');
+  const safeFileName = sanitizeSegment(origName, `prismq-${versionName}.apk`);
+  const cacheRoot = getCacheDir(params.cacheDir);
+  const targetDir = path.join(cacheRoot, safeTagDir);
+  const targetFile = path.join(targetDir, safeFileName);
+  const tmpFile = `${targetFile}.tmp-${Date.now()}`;
+
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.writeFileSync(tmpFile, params.buffer);
+  fs.renameSync(tmpFile, targetFile);
+
+  const metaPayload = {
+    versionName,
+    versionCode,
+    tagName,
+    releaseNotes: notes || `PrismQ Android v${versionName}`,
+    forceUpdate,
+    publishedAt: checkedAt,
+    fileName: safeFileName,
+  };
+  fs.writeFileSync(path.join(targetDir, 'release.json'), JSON.stringify(metaPayload, null, 2));
+  pruneOldCacheDirs(cacheRoot, safeTagDir);
+
+  const fileSize = params.buffer.length;
+  const sha256 = crypto.createHash('sha256').update(params.buffer).digest('hex');
+  const latest: AppUpdateReleaseInfo = {
+    versionName,
+    versionCode,
+    tagName,
+    releaseNotes: metaPayload.releaseNotes,
+    publishedAt: checkedAt,
+    fileName: safeFileName,
+    fileSize,
+    sha256,
+    downloadUrl: '/api/app-update/download',
+    forceUpdate,
+    syncedAt: checkedAt,
+  };
+
+  await writeSettingJson(db, STATE_KEY, {
+    latest,
+    lastCheckedAt: checkedAt,
+    lastError: null,
+  });
+
+  const pushedClients = broadcastAppUpdate(latest);
+  return {
+    ok: true,
+    updated: true,
+    pushedClients,
+    latest,
+  };
+}
+
+interface LocalReleaseCandidate {
+  filePath: string;
+  dirPath: string;
+  inRoot: boolean;
+  fileName: string;
+  versionName: string;
+  versionCode: number;
+  tagName: string;
+  releaseNotes: string;
+  forceUpdate: boolean;
+  publishedAt: string;
+  mtimeMs: number;
+}
+
+function parseLocalReleaseCandidate(
+  filePath: string,
+  dirPath: string,
+  inRoot: boolean,
+  fileName: string,
+  parentDirName: string
+): LocalReleaseCandidate | null {
+  const stat = fs.statSync(filePath);
+  if (!stat.isFile() || stat.size <= 0) return null;
+
+  let meta: Record<string, unknown> = {};
+  const metaPath = path.join(dirPath, 'release.json');
+  if (fs.existsSync(metaPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        meta = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // ignore invalid release.json
+    }
+  }
+
+  const fromMeta = String(meta.versionName || '').trim();
+  const fromFile = /v?(\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)/i.exec(fileName)?.[1] ?? '';
+  const fromParent = inRoot
+    ? ''
+    : /v?(\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)/i.exec(parentDirName)?.[1] ?? '';
+  const rawVer = fromMeta || fromFile || fromParent;
+  if (!rawVer) return null;
+
+  const versionName = normalizeVersionName(rawVer);
+  const tagName = String(meta.tagName || '').trim() || `v${versionName}`;
+  const releaseNotes = String(meta.releaseNotes || '').trim() || `PrismQ Android v${versionName}`;
+  const metaCode = Number(meta.versionCode || 0);
+  const versionCode =
+    Number.isFinite(metaCode) && metaCode > 0
+      ? Math.floor(metaCode)
+      : parseVersionCode(releaseNotes, versionName);
+
+  return {
+    filePath,
+    dirPath,
+    inRoot,
+    fileName,
+    versionName,
+    versionCode,
+    tagName,
+    releaseNotes,
+    forceUpdate: Boolean(meta.forceUpdate),
+    publishedAt: String(meta.publishedAt || new Date(stat.mtimeMs).toISOString()),
+    mtimeMs: stat.mtimeMs,
+  };
+}
+
+export async function scanLocalApkReleases(
+  db: DbClient,
+  opts?: {
+    forcePush?: boolean;
+    cacheDir?: string;
+  }
+): Promise<AppUpdateSyncResult> {
+  if (syncInFlight) {
+    return syncInFlight;
+  }
+
+  const run = async (): Promise<AppUpdateSyncResult> => {
+    const checkedAt = new Date().toISOString();
+    const prevState = await getStoredUpdateState(db);
+    const cacheRoot = getCacheDir(opts?.cacheDir);
+
+    try {
+      fs.mkdirSync(cacheRoot, { recursive: true });
+      const entries = fs.readdirSync(cacheRoot, { withFileTypes: true });
+      const candidates: LocalReleaseCandidate[] = [];
+
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const fullPath = path.join(cacheRoot, entry.name);
+        if (entry.isFile() && entry.name.toLowerCase().endsWith('.apk') && !entry.name.includes('.tmp-')) {
+          const item = parseLocalReleaseCandidate(fullPath, cacheRoot, true, entry.name, '');
+          if (item) candidates.push(item);
+        } else if (entry.isDirectory()) {
+          const subEntries = fs.readdirSync(fullPath, { withFileTypes: true });
+          for (const sub of subEntries) {
+            if (
+              sub.isFile() &&
+              sub.name.toLowerCase().endsWith('.apk') &&
+              !sub.name.includes('.tmp-')
+            ) {
+              const subPath = path.join(fullPath, sub.name);
+              const item = parseLocalReleaseCandidate(subPath, fullPath, false, sub.name, entry.name);
+              if (item) candidates.push(item);
+            }
+          }
+        }
+      }
+
+      if (candidates.length === 0) {
+        const cachedStillExists = prevState.latest
+          ? Boolean((() => {
+              const p = resolveCachedApkPath(prevState.latest, opts?.cacheDir);
+              return p && fs.existsSync(p);
+            })())
+          : false;
+        const retained = cachedStillExists ? prevState.latest : null;
+        await writeSettingJson(db, STATE_KEY, {
+          latest: retained,
+          lastCheckedAt: checkedAt,
+          lastError: null,
+        });
+        return {
+          ok: true,
+          updated: false,
+          pushedClients: 0,
+          latest: retained,
+        };
+      }
+
+      candidates.sort((a, b) => {
+        const cmp = compareSemver(b.versionName, a.versionName);
+        if (cmp !== 0) return cmp;
+        if (b.versionCode !== a.versionCode) return b.versionCode - a.versionCode;
+        return b.mtimeMs - a.mtimeMs;
+      });
+      const chosen = candidates[0];
+
+      const safeTagDir = sanitizeSegment(chosen.tagName, 'latest');
+      const safeFileName = sanitizeSegment(chosen.fileName, `prismq-${chosen.versionName}.apk`);
+      const targetDir = path.join(cacheRoot, safeTagDir);
+      const targetFile = path.join(targetDir, safeFileName);
+      if (path.resolve(chosen.filePath) !== path.resolve(targetFile)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+        if (chosen.inRoot) {
+          fs.renameSync(chosen.filePath, targetFile);
+        } else {
+          fs.copyFileSync(chosen.filePath, targetFile);
+        }
+        fs.writeFileSync(
+          path.join(targetDir, 'release.json'),
+          JSON.stringify(
+            {
+              versionName: chosen.versionName,
+              versionCode: chosen.versionCode,
+              tagName: chosen.tagName,
+              releaseNotes: chosen.releaseNotes,
+              forceUpdate: chosen.forceUpdate,
+              publishedAt: chosen.publishedAt,
+              fileName: safeFileName,
+            },
+            null,
+            2
+          )
+        );
+      }
+
+      const fileBuf = fs.readFileSync(targetFile);
+      const fileSize = fileBuf.length;
+      const sha256 = crypto.createHash('sha256').update(fileBuf).digest('hex');
+
+      const latest: AppUpdateReleaseInfo = {
+        versionName: chosen.versionName,
+        versionCode: chosen.versionCode,
+        tagName: chosen.tagName,
+        releaseNotes: chosen.releaseNotes,
+        publishedAt: chosen.publishedAt,
+        fileName: safeFileName,
+        fileSize,
+        sha256,
+        downloadUrl: '/api/app-update/download',
+        forceUpdate: chosen.forceUpdate,
+        syncedAt: checkedAt,
+      };
+
+      const prevRelease = prevState.latest;
+      const isNewerThanPrev =
+        !prevRelease ||
+        compareSemver(latest.versionName, prevRelease.versionName) > 0 ||
+        (compareSemver(latest.versionName, prevRelease.versionName) === 0 &&
+          latest.versionCode > prevRelease.versionCode) ||
+        latest.sha256 !== prevRelease.sha256;
+
+      await writeSettingJson(db, STATE_KEY, {
+        latest,
+        lastCheckedAt: checkedAt,
+        lastError: null,
+      });
+
+      const pushedClients = isNewerThanPrev || opts?.forcePush ? broadcastAppUpdate(latest) : 0;
+      return {
+        ok: true,
+        updated: Boolean(isNewerThanPrev),
+        pushedClients,
+        latest,
+      };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '扫描服务器 APK 目录失败';
+      await writeSettingJson(db, STATE_KEY, {
+        latest: prevState.latest,
+        lastCheckedAt: checkedAt,
+        lastError: errMsg,
+      }).catch(() => {});
+      return {
+        ok: false,
+        updated: false,
+        pushedClients: 0,
+        latest: prevState.latest,
+        error: errMsg,
+      };
+    }
+  };
+
+  syncInFlight = run().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
 export async function syncLatestApkFromGitHub(
   db: DbClient,
   opts?: {
@@ -422,24 +754,6 @@ export async function syncLatestApkFromGitHub(
         updated: false,
         pushedClients: 0,
         latest: prevState.latest,
-      };
-    }
-
-    if (!cfg.githubRepo) {
-      if (!opts?.forcePush) {
-        return {
-          ok: true,
-          updated: false,
-          pushedClients: 0,
-          latest: prevState.latest,
-        };
-      }
-      return {
-        ok: false,
-        updated: false,
-        pushedClients: 0,
-        latest: prevState.latest,
-        error: '未配置 GitHub 仓库（GITHUB_REPO），更新推送功能未启用',
       };
     }
 
@@ -586,15 +900,15 @@ export function startAppUpdatePoller(db: DbClient): void {
   const cfg = getAppConfig();
   const intervalMinutes = Math.max(1, cfg.appUpdatePollIntervalMinutes || 15);
   const initialDelay = setTimeout(() => {
-    void syncLatestApkFromGitHub(db).catch((err) => {
-      console.warn('[棱题 · PrismQ] GitHub APK 初始检查失败:', err instanceof Error ? err.message : err);
+    void scanLocalApkReleases(db).catch((err) => {
+      console.warn('[棱题 · PrismQ] 服务器本地 APK 初始扫描失败:', err instanceof Error ? err.message : err);
     });
-  }, 5000);
+  }, 3000);
   if (typeof initialDelay.unref === 'function') initialDelay.unref();
 
   pollerTimer = setInterval(() => {
-    void syncLatestApkFromGitHub(db).catch((err) => {
-      console.warn('[棱题 · PrismQ] GitHub APK 定时同步失败:', err instanceof Error ? err.message : err);
+    void scanLocalApkReleases(db).catch((err) => {
+      console.warn('[棱题 · PrismQ] 服务器本地 APK 定时扫描失败:', err instanceof Error ? err.message : err);
     });
   }, intervalMinutes * 60 * 1000);
   if (typeof pollerTimer.unref === 'function') pollerTimer.unref();

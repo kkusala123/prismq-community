@@ -14,6 +14,7 @@ import {
   Sun,
   SlidersHorizontal,
   Play,
+  RotateCcw,
 } from 'lucide-react';
 import {
   QUESTION_TYPE_LABELS,
@@ -37,6 +38,7 @@ interface LocalPracticePrefs {
   autoNext?: boolean;
   autoNextDelayMs?: number;
   switchAnimationMs?: number;
+  defaultShuffleQuestions?: boolean;
 }
 
 function clampPref(value: unknown, min: number, max: number, fallback: number): number {
@@ -97,6 +99,17 @@ export const PracticePage: React.FC = () => {
   const [canEditBank, setCanEditBank] = useState(false);
 
   const [reciteMode, setReciteMode] = useState(searchParams.get('recite') === '1');
+  const [shuffleQuestions, setShuffleQuestions] = useState(
+    () =>
+      mode === 'random' ||
+      searchParams.get('shuffle') === '1' ||
+      searchParams.get('shuffleQuestions') === 'true' ||
+      Boolean(initialPrefs.defaultShuffleQuestions)
+  );
+  const [defaultShufflePref, setDefaultShufflePref] = useState(
+    Boolean(initialPrefs.defaultShuffleQuestions)
+  );
+  const [shuffleSeedSeq, setShuffleSeedSeq] = useState(0);
   const [shuffleOptions, setShuffleOptions] = useState(mode === 'random');
   const [excludeMastered, setExcludeMastered] = useState(mode === 'unmastered');
   const [onlyUnanswered, setOnlyUnanswered] = useState(
@@ -113,8 +126,25 @@ export const PracticePage: React.FC = () => {
   );
   const [fontSize, setFontSize] = useState<QuestionFontSize>(initialPrefs.fontSize ?? 'md');
   const [eyeCare, setEyeCare] = useState(initialPrefs.eyeCare ?? false);
+  const [sortBy, setSortBy] = useState<'default' | 'difficulty_asc' | 'difficulty_desc'>(() => {
+    const raw = searchParams.get('sortBy') || '';
+    if (raw === 'difficulty_asc' || mode === 'difficulty_asc') return 'difficulty_asc';
+    if (raw === 'difficulty_desc' || mode === 'difficulty_desc') return 'difficulty_desc';
+    return 'default';
+  });
   const [showSheetModal, setShowSheetModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [resettingProgress, setResettingProgress] = useState(false);
+  const [completionSnapshot, setCompletionSnapshot] = useState<{
+    done: number;
+    correct: number;
+    total: number;
+    accuracy: number;
+  } | null>(null);
+  const [roundVersion, setRoundVersion] = useState(0);
+  const completionShownRef = useRef(false);
+  const progressClearedRef = useRef(false);
 
   const [transitionDir, setTransitionDir] = useState<'next' | 'prev' | null>(null);
   const [transitionSeq, setTransitionSeq] = useState(0);
@@ -197,8 +227,9 @@ export const PracticePage: React.FC = () => {
       autoNext,
       autoNextDelayMs,
       switchAnimationMs,
+      defaultShuffleQuestions: defaultShufflePref,
     });
-  }, [fontSize, eyeCare, autoNext, autoNextDelayMs, switchAnimationMs]);
+  }, [fontSize, eyeCare, autoNext, autoNextDelayMs, switchAnimationMs, defaultShufflePref]);
 
   useEffect(() => {
     return () => {
@@ -236,6 +267,8 @@ export const PracticePage: React.FC = () => {
     const prev = committed ?? currentIndexRef.current;
     const clamped = Math.max(0, Math.min(questions.length - 1, targetIdx));
     if (clamped === prev || questions.length === 0) return;
+
+    progressClearedRef.current = false;
 
     const dir: 'next' | 'prev' = explicitDir ?? (clamped > prev ? 'next' : 'prev');
     const duration = prefersReducedMotion() ? 0 : switchAnimationMs;
@@ -286,16 +319,27 @@ export const PracticePage: React.FC = () => {
     setTransitionSeq((s) => s + 1);
   };
 
+  const effectiveProgressMode = sortBy !== 'default' ? sortBy : mode;
+  const isResumableMode =
+    !shuffleQuestions &&
+    (mode === 'sequential' || mode === 'difficulty_asc' || mode === 'difficulty_desc');
+
   const loadSession = async () => {
     clearAutoNextTimer();
     clearSlideTimer();
     pendingCommitRef.current = null;
+    completionShownRef.current = false;
+    progressClearedRef.current = false;
+    setShowCompletionModal(false);
+    setCompletionSnapshot(null);
     setTrackAnimate(false);
     setTrackOffsetX(0);
     setOverrideAdjacent(null);
     setLoading(true);
     try {
       const qs = new URLSearchParams({ bankId, mode });
+      if (sortBy !== 'default') qs.set('sortBy', sortBy);
+      if (shuffleQuestions) qs.set('shuffleQuestions', 'true');
       if (chapterId) qs.set('chapterId', chapterId);
       if (type) qs.set('type', type);
       if (difficultyTier) qs.set('difficultyTier', difficultyTier);
@@ -310,10 +354,17 @@ export const PracticePage: React.FC = () => {
       }>(`/api/practice/session?${qs.toString()}`);
 
       setQuestions(res.questions);
-      const startIdx =
-        mode === 'sequential' && res.lastProgressIndex < res.questions.length
-          ? res.lastProgressIndex
+      const fallbackIdx =
+        typeof res.nextUnansweredIndex === 'number' &&
+        res.nextUnansweredIndex >= 0 &&
+        res.nextUnansweredIndex < res.questions.length
+          ? res.nextUnansweredIndex
           : 0;
+      const startIdx = isResumableMode
+        ? res.lastProgressIndex >= 0 && res.lastProgressIndex < res.questions.length
+          ? res.lastProgressIndex
+          : fallbackIdx
+        : 0;
       currentIndexRef.current = startIdx;
       setCurrentIndex(startIdx);
       setTransitionDir(null);
@@ -329,13 +380,13 @@ export const PracticePage: React.FC = () => {
 
   useEffect(() => {
     void loadSession();
-  }, [bankId, mode, chapterId, type, difficultyTier, minStar, excludeMastered, onlyUnanswered]);
+  }, [bankId, mode, sortBy, shuffleQuestions, shuffleSeedSeq, chapterId, type, difficultyTier, minStar, excludeMastered, onlyUnanswered]);
 
   const canSyncBankProgress =
     !loading &&
     questions.length > 0 &&
     bankId !== 'all' &&
-    mode === 'sequential' &&
+    isResumableMode &&
     !chapterId &&
     !type &&
     !difficultyTier &&
@@ -344,14 +395,15 @@ export const PracticePage: React.FC = () => {
     !onlyUnanswered;
 
   useEffect(() => {
-    if (!canSyncBankProgress) return;
+    if (!canSyncBankProgress || progressClearedRef.current) return;
     if (progressSyncTimerRef.current !== null) {
       window.clearTimeout(progressSyncTimerRef.current);
     }
     progressSyncTimerRef.current = window.setTimeout(() => {
+      if (progressClearedRef.current) return;
       void apiFetch('/api/practice/progress', {
         method: 'PUT',
-        json: { bankId, currentIndex, mode },
+        json: { bankId, currentIndex, mode: effectiveProgressMode },
       }).catch(() => undefined);
     }, 450);
     return () => {
@@ -359,11 +411,12 @@ export const PracticePage: React.FC = () => {
         window.clearTimeout(progressSyncTimerRef.current);
       }
     };
-  }, [canSyncBankProgress, bankId, currentIndex, mode]);
+  }, [canSyncBankProgress, bankId, currentIndex, effectiveProgressMode]);
 
   useEffect(() => {
     if (!canSyncBankProgress) return;
     const flushProgress = () => {
+      if (progressClearedRef.current) return;
       const token = getAuthToken();
       if (!token) return;
       void fetch('/api/practice/progress', {
@@ -372,7 +425,11 @@ export const PracticePage: React.FC = () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ bankId, currentIndex: currentIndexRef.current, mode }),
+        body: JSON.stringify({
+          bankId,
+          currentIndex: currentIndexRef.current,
+          mode: effectiveProgressMode,
+        }),
         keepalive: true,
       }).catch(() => undefined);
     };
@@ -381,7 +438,7 @@ export const PracticePage: React.FC = () => {
       window.removeEventListener('pagehide', flushProgress);
       flushProgress();
     };
-  }, [canSyncBankProgress, bankId, mode]);
+  }, [canSyncBankProgress, bankId, effectiveProgressMode]);
 
   const currentQuestion = questions[currentIndex];
 
@@ -421,7 +478,7 @@ export const PracticePage: React.FC = () => {
     return { correct, wrong, todo, done, pct };
   }, [questions]);
 
-  // 考试宝风格按题型分组的答题卡索引
+  // 棱题 · PrismQ 按题型分组的答题卡索引
   const groupedSheetSections = useMemo(() => {
     const groups = new Map<QuestionType, Array<{ q: QuestionItem; idx: number }>>();
     questions.forEach((q, idx) => {
@@ -481,24 +538,127 @@ export const PracticePage: React.FC = () => {
         questionId: q.id,
         answer,
         currentIndex: idx,
-        mode,
+        mode: effectiveProgressMode,
       },
     });
 
-    setQuestions((prev) =>
-      prev.map((item) => (item.id === q.id ? { ...item, record: res.record } : item))
+    const nextQuestions = questions.map((item) =>
+      item.id === q.id ? { ...item, record: res.record } : item
     );
+    const allAnsweredNow =
+      nextQuestions.length > 0 &&
+      nextQuestions.every((item) => (item.record?.answeredCount ?? 0) > 0);
+    setQuestions(nextQuestions);
 
-    if (res.isCorrect && autoNext && !reciteMode && idx < questions.length - 1) {
-      clearAutoNextTimer();
-      autoNextTimerRef.current = window.setTimeout(() => {
-        autoNextTimerRef.current = null;
-        if (currentIndexRef.current === idx && !reciteMode) {
-          navigateBy(1);
-        }
-      }, autoNextDelayMs);
+    if ((idx >= questions.length - 1 || allAnsweredNow) && !completionShownRef.current) {
+      completionShownRef.current = true;
+      progressClearedRef.current = true;
+      window.setTimeout(() => {
+        openCompletionAndClearProgress(nextQuestions);
+      }, 380);
+    } else {
+      progressClearedRef.current = false;
+      if (res.isCorrect && autoNext && !reciteMode && idx < questions.length - 1) {
+        clearAutoNextTimer();
+        autoNextTimerRef.current = window.setTimeout(() => {
+          autoNextTimerRef.current = null;
+          if (currentIndexRef.current === idx && !reciteMode) {
+            navigateBy(1);
+          }
+        }, autoNextDelayMs);
+      }
     }
     return res;
+  };
+
+  const resetServerProgress = async (overrideMode?: string) => {
+    if (questions.length === 0 && (!bankId || bankId === 'all')) return;
+    await apiFetch<{ ok: boolean; resetCount: number; lastQuestionIndex: number }>(
+      '/api/practice/reset',
+      {
+        method: 'POST',
+        json: {
+          bankId,
+          mode: overrideMode || effectiveProgressMode,
+          questionIds: bankId === 'all' ? questions.map((q) => q.id) : undefined,
+        },
+      }
+    );
+  };
+
+  const resetLocalRoundState = (reshuffle = false) => {
+    clearAutoNextTimer();
+    clearSlideTimer();
+    pendingCommitRef.current = null;
+    completionShownRef.current = false;
+    progressClearedRef.current = false;
+    setShowCompletionModal(false);
+    setCompletionSnapshot(null);
+    setQuestions((prev) =>
+      prev.map((q) => ({
+        ...q,
+        record: q.record
+          ? {
+              ...q.record,
+              answeredCount: 0,
+              lastAnswer: null,
+              lastIsCorrect: null,
+            }
+          : null,
+      }))
+    );
+    currentIndexRef.current = 0;
+    setCurrentIndex(0);
+    setTrackAnimate(false);
+    setTrackOffsetX(0);
+    setOverrideAdjacent(null);
+    setRoundVersion((v) => v + 1);
+    if (reshuffle) {
+      if (!shuffleQuestions) {
+        setShuffleQuestions(true);
+      } else {
+        setShuffleSeedSeq((s) => s + 1);
+      }
+    }
+  };
+
+  const handleOneClickReset = async () => {
+    if (questions.length === 0 || resettingProgress) return;
+    if (
+      !window.confirm(
+        '确认清空当前刷题进度并从第 1 题重新开始吗？（收藏、笔记与错题本不受影响）'
+      )
+    ) {
+      return;
+    }
+    setResettingProgress(true);
+    if (progressSyncTimerRef.current !== null) {
+      window.clearTimeout(progressSyncTimerRef.current);
+      progressSyncTimerRef.current = null;
+    }
+    progressClearedRef.current = true;
+    try {
+      await resetServerProgress();
+      resetLocalRoundState(shuffleQuestions);
+    } finally {
+      setResettingProgress(false);
+    }
+  };
+
+  const openCompletionAndClearProgress = (sourceQuestions: QuestionItem[]) => {
+    const correct = sourceQuestions.filter((q) => q.record?.lastIsCorrect === true).length;
+    const wrong = sourceQuestions.filter((q) => q.record?.lastIsCorrect === false).length;
+    const done = correct + wrong;
+    const total = sourceQuestions.length;
+    const accuracy = done > 0 ? Math.round((correct / done) * 100) : 0;
+    setCompletionSnapshot({ done, correct, total, accuracy });
+    if (progressSyncTimerRef.current !== null) {
+      window.clearTimeout(progressSyncTimerRef.current);
+      progressSyncTimerRef.current = null;
+    }
+    progressClearedRef.current = true;
+    void resetServerProgress().catch(() => undefined);
+    setShowCompletionModal(true);
   };
 
   const firstUnansweredIndex = useMemo(
@@ -729,156 +889,224 @@ export const PracticePage: React.FC = () => {
 
   return (
     <div className={`min-h-[100dvh] pb-24 lg:pb-12 transition-colors ${eyeCare ? 'bg-[#EDF3E4]' : 'bg-[#F7F8FA]'}`}>
-      {/* 顶部沉浸式学习控制栏（手机端保持单行精简，完整调节项收纳至刷题设置抽屉） */}
+      {/* 顶部沉浸式学习控制栏（双行清晰分区，手机端保持单行精简，完整调节项收纳至刷题设置抽屉） */}
       <header className="sticky top-0 z-20 border-b border-[#E4E7ED] bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-2 px-3 py-2 sm:px-6 sm:py-2.5">
-          <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
-            <Link
-              to={bankId === 'all' ? '/mistakes' : `/banks/${bankId}`}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#DCDFE6] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#303133] transition hover:border-brand-400 hover:text-brand-600 sm:gap-1.5 sm:px-3"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              返回
-            </Link>
-            <span className="truncate text-sm font-bold text-[#303133]">
-              <span className="sm:hidden">{reciteMode ? '背题' : '刷题'}</span>
-              <span className="hidden sm:inline">{reciteMode ? '背题模式（答案直显）' : '在线刷题模式'}</span>
-            </span>
-            <Badge tone={reciteMode ? 'success' : 'brand'} className="shrink-0 tabular-nums">
-              {questions.length > 0 ? `${currentIndex + 1} / ${questions.length}` : '0 题'}
-            </Badge>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            {/* 字号调节 */}
-            <div className="hidden items-center overflow-hidden rounded-md border border-[#DCDFE6] bg-white md:inline-flex">
-              {(['sm', 'md', 'lg'] as const).map((sz, i) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => setFontSize(sz)}
-                  title={`字号：${sz === 'sm' ? '小' : sz === 'md' ? '中' : '大'}`}
-                  className={`px-2 py-1 text-[11px] font-semibold transition ${
-                    i > 0 ? 'border-l border-[#EBEEF5]' : ''
-                  } ${
-                    fontSize === sz
-                      ? 'bg-brand-600 text-white'
-                      : 'text-[#606266] hover:bg-[#F5F7FA]'
-                  }`}
-                >
-                  {sz === 'sm' ? 'A-' : sz === 'md' ? 'A' : 'A+'}
-                </button>
-              ))}
+        <div className="mx-auto max-w-[1200px] px-3 py-2 sm:px-6 sm:py-2.5">
+          {/* 第一行：导航标题、当前题号与高频主操作 */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+              <Link
+                to={bankId === 'all' ? '/mistakes' : `/banks/${bankId}`}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#DCDFE6] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#303133] transition hover:border-brand-400 hover:text-brand-600 sm:gap-1.5 sm:px-3"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                返回
+              </Link>
+              <span className="truncate text-sm font-bold text-[#303133]">
+                <span className="sm:hidden">{reciteMode ? '背题' : '刷题'}</span>
+                <span className="hidden sm:inline">{reciteMode ? '背题模式（答案直显）' : '在线刷题模式'}</span>
+              </span>
+              <Badge tone={reciteMode ? 'success' : 'brand'} className="shrink-0 tabular-nums">
+                {questions.length > 0 ? `${currentIndex + 1} / ${questions.length}` : '0 题'}
+              </Badge>
             </div>
 
-            {/* 护眼底色开关 */}
-            <button
-              type="button"
-              onClick={() => setEyeCare((v) => !v)}
-              className={`hidden items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium transition md:inline-flex ${
-                eyeCare
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                  : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
-              }`}
-            >
-              <Eye className="h-3.5 w-3.5" />
-              护眼
-            </button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                disabled={resettingProgress || questions.length === 0}
+                onClick={() => void handleOneClickReset()}
+                title="清空当前刷题进度并从第 1 题重新开始"
+                className="inline-flex items-center gap-1 rounded-md border border-[#DCDFE6] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#606266] transition hover:border-rose-400 hover:text-rose-600 disabled:opacity-50"
+              >
+                <RotateCcw className={`h-3.5 w-3.5 ${resettingProgress ? 'animate-spin' : ''}`} />
+                <span className="sm:hidden">重刷</span>
+                <span className="hidden sm:inline">{resettingProgress ? '清空中…' : '一键重刷'}</span>
+              </button>
 
-            {/* 黑夜 / 日间模式切换 */}
-            <button
-              type="button"
-              onClick={toggleDark}
-              title={isDark ? '切换至浅色模式' : '切换至黑夜模式'}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
-                isDark
-                  ? 'border-amber-400/50 bg-amber-50 text-amber-600'
-                  : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
-              }`}
-            >
-              {isDark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{isDark ? '浅色' : '黑夜'}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setReciteMode((v) => !v)}
+                title="快捷键 M"
+                className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition sm:inline-flex ${
+                  reciteMode
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                    : 'border-[#DCDFE6] bg-white text-[#303133] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                {reciteMode ? '背题中' : '切背题'}
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setReciteMode((v) => !v)}
-              title="快捷键 M"
-              className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition md:inline-flex ${
-                reciteMode
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                  : 'border-[#DCDFE6] bg-white text-[#303133] hover:border-brand-400 hover:text-brand-600'
-              }`}
-            >
-              <BookOpen className="h-3.5 w-3.5" />
-              {reciteMode ? '背题中' : '切背题'}
-            </button>
+              {/* 黑夜 / 日间模式切换 */}
+              <button
+                type="button"
+                onClick={toggleDark}
+                title={isDark ? '切换至浅色模式' : '切换至黑夜模式'}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
+                  isDark
+                    ? 'border-amber-400/50 bg-amber-50 text-amber-600'
+                    : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                {isDark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">{isDark ? '浅色' : '黑夜'}</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setShuffleOptions((v) => !v)}
-              className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition lg:inline-flex ${
-                shuffleOptions
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
-              }`}
-            >
-              <Shuffle className="h-3.5 w-3.5" />
-              选项乱序
-            </button>
+              {/* 刷题与切题速度设置入口（全端可见） */}
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(true)}
+                className="inline-flex items-center gap-1 rounded-md border border-[#DCDFE6] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#303133] transition hover:border-brand-400 hover:text-brand-600"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5 text-brand-600" />
+                <span className="sm:hidden">设置</span>
+                <span className="hidden sm:inline">刷题设置</span>
+              </button>
+            </div>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => setExcludeMastered((v) => !v)}
-              className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition lg:inline-flex ${
-                excludeMastered
-                  ? 'border-teal-500 bg-teal-50 text-teal-700'
-                  : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
-              }`}
-            >
-              <Scissors className="h-3.5 w-3.5" />
-              过滤已斩
-            </button>
+          {/* 第二行（桌面/平板）：出题策略、筛选开关与阅读显示调节 */}
+          <div className="mt-2 hidden flex-wrap items-center justify-between gap-2 border-t border-[#F0F2F5] pt-2 md:flex">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* 按难度排序切换（支持从中断位置续接） */}
+              {isResumableMode && (
+                <div className="inline-flex items-center rounded-md border border-[#DCDFE6] bg-white p-0.5 text-xs">
+                  {(
+                    [
+                      ['default', '默认'],
+                      ['difficulty_asc', '由易到难'],
+                      ['difficulty_desc', '由难到易'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSortBy(key)}
+                      className={`rounded px-2 py-1 font-medium transition ${
+                        sortBy === key
+                          ? 'bg-brand-600 text-white'
+                          : 'text-[#606266] hover:text-brand-600'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-            <button
-              type="button"
-              onClick={() => setOnlyUnanswered((v) => !v)}
-              className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition lg:inline-flex ${
-                onlyUnanswered
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
-              }`}
-            >
-              仅看未做
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!shuffleQuestions) {
+                    setShuffleQuestions(true);
+                  } else {
+                    setShuffleSeedSeq((s) => s + 1);
+                  }
+                }}
+                title="点击开启乱序出题或重新随机洗牌"
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                  shuffleQuestions
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                <Shuffle className="h-3.5 w-3.5" />
+                <span>{shuffleQuestions ? '重新洗牌' : '乱序出题'}</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                const next = !autoNext;
-                setAutoNext(next);
-                scheduleServerSpeedSync({ autoNextOnCorrect: next });
-              }}
-              className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition lg:inline-flex ${
-                autoNext
-                  ? 'border-brand-400 bg-brand-50 text-brand-700'
-                  : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
-              }`}
-            >
-              <Zap className="h-3.5 w-3.5" />
-              自动下一题 ({autoNextDelayMs}ms)
-            </button>
+              <button
+                type="button"
+                onClick={() => setShuffleOptions((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                  shuffleOptions
+                    ? 'border-brand-500 bg-brand-50 text-brand-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                <Shuffle className="h-3.5 w-3.5" />
+                选项乱序
+              </button>
 
-            {/* 刷题与切题速度设置入口（全端可见） */}
-            <button
-              type="button"
-              onClick={() => setShowSettingsModal(true)}
-              className="inline-flex items-center gap-1 rounded-md border border-[#DCDFE6] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#303133] transition hover:border-brand-400 hover:text-brand-600"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5 text-brand-600" />
-              <span className="sm:hidden">设置</span>
-              <span className="hidden sm:inline">刷题设置</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setExcludeMastered((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                  excludeMastered
+                    ? 'border-teal-500 bg-teal-50 text-teal-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                <Scissors className="h-3.5 w-3.5" />
+                过滤已斩
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setOnlyUnanswered((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                  onlyUnanswered
+                    ? 'border-brand-500 bg-brand-50 text-brand-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                仅看未做
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !autoNext;
+                  setAutoNext(next);
+                  scheduleServerSpeedSync({ autoNextOnCorrect: next });
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                  autoNext
+                    ? 'border-brand-400 bg-brand-50 text-brand-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                <Zap className="h-3.5 w-3.5" />
+                自动下一题 ({autoNextDelayMs}ms)
+              </button>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1.5">
+              {/* 护眼底色开关 */}
+              <button
+                type="button"
+                onClick={() => setEyeCare((v) => !v)}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                  eyeCare
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266] hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                护眼
+              </button>
+
+              {/* 字号调节 */}
+              <div className="inline-flex items-center overflow-hidden rounded-md border border-[#DCDFE6] bg-white">
+                {(['sm', 'md', 'lg'] as const).map((sz, i) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => setFontSize(sz)}
+                    title={`字号：${sz === 'sm' ? '小' : sz === 'md' ? '中' : '大'}`}
+                    className={`px-2 py-1 text-[11px] font-semibold transition ${
+                      i > 0 ? 'border-l border-[#EBEEF5]' : ''
+                    } ${
+                      fontSize === sz
+                        ? 'bg-brand-600 text-white'
+                        : 'text-[#606266] hover:bg-[#F5F7FA]'
+                    }`}
+                  >
+                    {sz === 'sm' ? 'A-' : sz === 'md' ? 'A' : 'A+'}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -946,6 +1174,7 @@ export const PracticePage: React.FC = () => {
 
                   {/* 中央当前活跃卡片 */}
                   <QuestionCard
+                    key={`${currentQuestion.id}-r${roundVersion}`}
                     question={currentQuestion}
                     index={currentIndex}
                     total={questions.length}
@@ -998,19 +1227,21 @@ export const PracticePage: React.FC = () => {
                 快捷键：A-D / 1-4 选答案 · ←/→ 切题 · M 切背题 · S 收藏 · K 斩题
               </span>
 
-              <Button
-                variant="primary"
-                disabled={currentIndex >= questions.length - 1}
-                onClick={() => navigateBy(1)}
-              >
-                下一题 (→)
-                <ArrowRight className="h-4 w-4" />
-              </Button>
+              {currentIndex >= questions.length - 1 ? (
+                <Button variant="primary" onClick={() => openCompletionAndClearProgress(questions)}>
+                  完成本轮
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={() => navigateBy(1)}>
+                  下一题 (→)
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
 
           {/* 桌面右侧常驻答题卡（按题型分组 + 顶部作答进度条） */}
-          <aside className="hidden rounded-lg border border-[#EBEEF5] bg-white p-4 shadow-card lg:sticky lg:top-[68px] lg:block lg:self-start">
+          <aside className="hidden rounded-lg border border-[#EBEEF5] bg-white p-4 shadow-card lg:sticky lg:top-[112px] lg:block lg:self-start">
             <div className="mb-2.5 flex items-center justify-between gap-2">
               <span className="text-sm font-bold text-[#303133]">答题卡</span>
               <div className="flex items-center gap-1.5">
@@ -1086,15 +1317,20 @@ export const PracticePage: React.FC = () => {
             {reciteMode ? '背题中' : '背题'}
           </Button>
 
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={currentIndex >= questions.length - 1}
-            onClick={() => navigateBy(1)}
-          >
-            下一题
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
+          {currentIndex >= questions.length - 1 ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => openCompletionAndClearProgress(questions)}
+            >
+              完成本轮
+            </Button>
+          ) : (
+            <Button variant="primary" size="sm" onClick={() => navigateBy(1)}>
+              下一题
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       )}
 
@@ -1283,6 +1519,31 @@ export const PracticePage: React.FC = () => {
 
               <button
                 type="button"
+                onClick={() => setShuffleQuestions((v) => !v)}
+                className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                  shuffleQuestions
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266]'
+                }`}
+              >
+                <Shuffle className="h-3.5 w-3.5" />
+                本轮乱序出题 {shuffleQuestions ? '开' : '关'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDefaultShufflePref((v) => !v)}
+                className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                  defaultShufflePref
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-[#DCDFE6] bg-white text-[#606266]'
+                }`}
+              >
+                默认每次乱序 {defaultShufflePref ? '开' : '关'}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShuffleOptions((v) => !v)}
                 className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
                   shuffleOptions
@@ -1317,6 +1578,19 @@ export const PracticePage: React.FC = () => {
                 }`}
               >
                 仅看未做 {onlyUnanswered ? '开' : '关'}
+              </button>
+
+              <button
+                type="button"
+                disabled={resettingProgress || questions.length === 0}
+                onClick={() => {
+                  setShowSettingsModal(false);
+                  void handleOneClickReset();
+                }}
+                className="col-span-2 flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50 sm:col-span-4"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {resettingProgress ? '正在清空刷题进度…' : '一键重刷（清空当前进度并从第 1 题开始）'}
               </button>
             </div>
           </div>
@@ -1371,6 +1645,91 @@ export const PracticePage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 本轮完成鼓励弹窗 & 重复答题入口 */}
+      <Modal
+        open={showCompletionModal}
+        onClose={() => setShowCompletionModal(false)}
+        title="恭喜完成本轮刷题！"
+      >
+        {(() => {
+          const snap = completionSnapshot ?? {
+            done: sheetStats.done,
+            correct: sheetStats.correct,
+            total: questions.length,
+            accuracy:
+              sheetStats.done > 0 ? Math.round((sheetStats.correct / sheetStats.done) * 100) : 0,
+          };
+          const roundAcc = snap.accuracy;
+          const encourageTitle =
+            roundAcc >= 90 && snap.done > 0
+              ? '表现惊艳！高分收官'
+              : roundAcc >= 70
+              ? '干得漂亮！稳步进阶'
+              : snap.done === 0
+              ? '已浏览完本轮全部题目'
+              : '坚持就是胜利！';
+          const encourageDesc =
+            roundAcc >= 90 && snap.done > 0
+              ? `正确率高达 ${roundAcc}%，知识点掌握得非常扎实，继续保持！`
+              : roundAcc >= 70
+              ? `本轮正确率 ${roundAcc}%，把错题再巩固一遍会更稳！`
+              : snap.done === 0
+              ? '可以随时开启新一轮作答，或切到背题模式巩固记忆。'
+              : '万事开头难，复盘解析后再来一轮，进步会非常明显！';
+          return (
+            <div className="space-y-4 text-center">
+              <div className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                本轮刷题进度已自动清空，下次进入将从第 1 题开始
+              </div>
+              <h3 className="text-lg font-bold text-[#303133]">{encourageTitle}</h3>
+              <p className="text-sm text-[#606266]">{encourageDesc}</p>
+              <div className="grid grid-cols-3 gap-2 rounded-xl bg-[#F8FAFC] p-3">
+                <div>
+                  <div className="text-base font-bold text-brand-600 tabular-nums">
+                    {snap.done}/{snap.total}
+                  </div>
+                  <div className="text-[11px] text-[#909399]">已答题数</div>
+                </div>
+                <div>
+                  <div className="text-base font-bold text-emerald-600 tabular-nums">
+                    {snap.correct}
+                  </div>
+                  <div className="text-[11px] text-[#909399]">答对题数</div>
+                </div>
+                <div>
+                  <div className="text-base font-bold text-brand-600 tabular-nums">
+                    {roundAcc}%
+                  </div>
+                  <div className="text-[11px] text-[#909399]">正确率</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Link
+                  to={bankId === 'all' ? '/mistakes' : `/banks/${bankId}`}
+                  className="inline-flex flex-1 items-center justify-center rounded-lg border border-[#DCDFE6] bg-white px-3 py-2.5 text-sm font-semibold text-[#303133] transition hover:bg-[#F5F7FA]"
+                >
+                  返回题库
+                </Link>
+                <Button
+                  variant="secondary"
+                  className="flex-1"
+                  onClick={() => resetLocalRoundState(true)}
+                >
+                  乱序重刷
+                </Button>
+                <Button
+                  variant="primary"
+                  className="flex-1"
+                  onClick={() => resetLocalRoundState(false)}
+                >
+                  立即重刷
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 };

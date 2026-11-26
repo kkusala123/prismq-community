@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "分享码加入题库",
+  "usingComponents": {
+    "login-panel": "../../components/login-panel/login-panel"
+  }
+}

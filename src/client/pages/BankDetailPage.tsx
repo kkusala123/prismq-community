@@ -26,7 +26,10 @@ import {
   LogOut,
   Sparkles,
   Star,
+  QrCode,
+  Code2,
 } from 'lucide-react';
+import { RichCodeText } from '../components/RichCodeText';
 import {
   DIFFICULTY_LABELS,
   DIFFICULTY_TIER_LABELS,
@@ -43,6 +46,7 @@ import {
 import { apiFetch, downloadWithAuth } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { PrintModal } from '../components/PrintModal';
+import { SelfTestModal } from '../components/SelfTestModal';
 import {
   Alert,
   Badge,
@@ -131,6 +135,7 @@ export const BankDetailPage: React.FC = () => {
 
   const [newChapterName, setNewChapterName] = useState('');
   const [showPrint, setShowPrint] = useState(false);
+  const [showSelfTest, setShowSelfTest] = useState(false);
 
   const [editingQ, setEditingQ] = useState<Partial<QuestionItem> | null>(null);
   const [savingQ, setSavingQ] = useState(false);
@@ -145,7 +150,23 @@ export const BankDetailPage: React.FC = () => {
   const [sharePasswordInput, setSharePasswordInput] = useState('');
   const [inviteAccount, setInviteAccount] = useState('');
   const [inviting, setInviting] = useState(false);
-  const [copiedFlag, setCopiedFlag] = useState<'link' | 'code' | null>(null);
+  const [copiedFlag, setCopiedFlag] = useState<'link' | 'code' | 'wx' | null>(null);
+
+  // 题库二维码分享弹窗 & 一键代码规范化状态
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState('');
+  const [qrInfo, setQrInfo] = useState<{
+    bankId: string;
+    title: string;
+    shareCode: string;
+    shareUrl: string;
+    qrDataUrl: string;
+    questionCount: number;
+    requiresPassword: boolean;
+  } | null>(null);
+  const [formattingCode, setFormattingCode] = useState(false);
+  const [formatCodeMsg, setFormatCodeMsg] = useState('');
 
   const loadDetail = async () => {
     if (!id) return;
@@ -328,6 +349,51 @@ export const BankDetailPage: React.FC = () => {
       setShareError(err instanceof Error ? err.message : '加载私密分享设置失败');
     } finally {
       setShareLoading(false);
+    }
+  };
+
+  const openQrShareModal = async () => {
+    if (!detail) return;
+    setShowQrModal(true);
+    setQrLoading(true);
+    setQrError('');
+    try {
+      const res = await apiFetch<{
+        bankId: string;
+        title: string;
+        shareCode: string;
+        shareUrl: string;
+        qrDataUrl: string;
+        questionCount: number;
+        requiresPassword: boolean;
+      }>(`/api/banks/${detail.bank.id}/share-qrcode`);
+      setQrInfo(res);
+    } catch (err) {
+      setQrError(err instanceof Error ? err.message : '生成题库分享二维码失败');
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const handleFormatBankCode = async () => {
+    if (!detail || formattingCode) return;
+    setFormattingCode(true);
+    setFormatCodeMsg('');
+    try {
+      const res = await apiFetch<{ scannedCount: number; formattedCount: number }>(
+        `/api/banks/${detail.bank.id}/format-code`,
+        { method: 'POST' }
+      );
+      setFormatCodeMsg(
+        res.formattedCount > 0
+          ? `已扫描 ${res.scannedCount} 题，成功规范其中 ${res.formattedCount} 道含代码题目的排版与围栏格式。`
+          : `已扫描 ${res.scannedCount} 题，所有题目格式均已规范。`
+      );
+      void loadDetail();
+    } catch (err) {
+      setFormatCodeMsg(err instanceof Error ? err.message : '代码格式化失败');
+    } finally {
+      setFormattingCode(false);
     }
   };
 
@@ -604,6 +670,23 @@ export const BankDetailPage: React.FC = () => {
             )}
             <Button
               variant="secondary"
+              icon={<QrCode className="h-3.5 w-3.5 text-brand-600" />}
+              onClick={() => void openQrShareModal()}
+            >
+              二维码 / 微信分享
+            </Button>
+            {bank.canEdit && (
+              <Button
+                variant="secondary"
+                loading={formattingCode}
+                icon={!formattingCode ? <Code2 className="h-3.5 w-3.5 text-indigo-600" /> : undefined}
+                onClick={() => void handleFormatBankCode()}
+              >
+                规范代码格式
+              </Button>
+            )}
+            <Button
+              variant="secondary"
               icon={<Download className="h-3.5 w-3.5" />}
               onClick={() =>
                 void downloadWithAuth(`/api/banks/${bank.id}/export`, `${bank.title}.xlsx`)
@@ -631,7 +714,7 @@ export const BankDetailPage: React.FC = () => {
         }
       />
 
-      {/* 刷题/背题/模考模式启动区（考试宝六大金刚模式卡片） */}
+      {/* 刷题/背题/模考模式启动区（棱题 · PrismQ 六大核心模式卡片） */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <button
           type="button"
@@ -651,15 +734,15 @@ export const BankDetailPage: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => navigate(`/practice/${bank.id}?mode=random`)}
+          onClick={() => navigate(`/practice/${bank.id}?mode=sequential&shuffle=1`)}
           className="group flex flex-col items-start justify-between rounded-lg border border-[#EBEEF5] bg-white p-4 text-left shadow-card transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card-hover"
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
             <Shuffle className="h-4.5 w-4.5" />
           </div>
           <div className="mt-3">
-            <div className="text-sm font-bold text-[#303133] group-hover:text-brand-600">随机乱序</div>
-            <div className="mt-0.5 text-[11px] text-[#909399]">打乱题序选项练</div>
+            <div className="text-sm font-bold text-[#303133] group-hover:text-brand-600">乱序出题</div>
+            <div className="mt-0.5 text-[11px] text-[#909399]">每次进入重新洗牌</div>
           </div>
         </button>
 
@@ -707,18 +790,20 @@ export const BankDetailPage: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => navigate(`/exams?createFromBank=${bank.id}`)}
-          className="group flex flex-col items-start justify-between rounded-lg border border-[#EBEEF5] bg-white p-4 text-left shadow-card transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card-hover"
+          onClick={() => setShowSelfTest(true)}
+          className="group flex flex-col items-start justify-between rounded-lg border border-[#EBEEF5] bg-white p-4 text-left shadow-card transition hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-card-hover"
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
             <ClipboardCheck className="h-4.5 w-4.5" />
           </div>
           <div className="mt-3">
-            <div className="text-sm font-bold text-[#303133] group-hover:text-brand-600">组卷模考</div>
-            <div className="mt-0.5 text-[11px] text-[#909399]">限时模考自动评分</div>
+            <div className="text-sm font-bold text-[#303133] group-hover:text-amber-700">自测组卷</div>
+            <div className="mt-0.5 text-[11px] text-[#909399]">单选/判断等自选题量</div>
           </div>
         </button>
       </div>
+
+      {formatCodeMsg && <Alert tone="info">{formatCodeMsg}</Alert>}
 
       {/* 题型分类标签条 + DeepSeek 难度/星级评估面板 */}
       {stats && (
@@ -1067,9 +1152,10 @@ export const BankDetailPage: React.FC = () => {
                     )}
                   </div>
 
-                  <p className="mt-2.5 whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-900">
-                    {q.stem}
-                  </p>
+                  <RichCodeText
+                    text={q.stem}
+                    className="mt-2.5 text-sm font-medium leading-relaxed text-slate-900"
+                  />
 
                   {q.options.length > 0 && (
                     <div className="mt-2.5 grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
@@ -1082,7 +1168,7 @@ export const BankDetailPage: React.FC = () => {
                               : 'border border-slate-200 bg-slate-50 text-slate-700'
                           }`}
                         >
-                          {opt.key}. {opt.content}
+                          {opt.key}. <RichCodeText text={opt.content} inline />
                         </div>
                       ))}
                     </div>
@@ -1098,7 +1184,10 @@ export const BankDetailPage: React.FC = () => {
                         : q.answer}
                     </span>
                     {q.explanation && (
-                      <span className="text-slate-600">解析：{q.explanation}</span>
+                      <span className="text-slate-600">
+                        解析：
+                        <RichCodeText text={q.explanation} inline />
+                      </span>
                     )}
                     {q.ratingReason && (
                       <span className="text-indigo-700">AI 评级理由：{q.ratingReason}</span>
@@ -1513,6 +1602,75 @@ export const BankDetailPage: React.FC = () => {
             </>
           )}
         </div>
+      </Modal>
+
+      {/* 自由自测组卷弹窗 */}
+      <SelfTestModal
+        open={showSelfTest}
+        onClose={() => setShowSelfTest(false)}
+        lockedBank={{
+          id: bank.id,
+          title: bank.title,
+          chapters,
+          stats,
+          questions,
+        }}
+      />
+
+      {/* 题库二维码与微信分享弹窗 */}
+      <Modal
+        open={showQrModal}
+        onClose={() => setShowQrModal(false)}
+        title={`二维码与微信分享 · ${bank.title}`}
+      >
+        {qrLoading ? (
+          <div className="py-10 text-center text-xs text-slate-500">正在生成题库分享二维码...</div>
+        ) : qrError ? (
+          <Alert tone="error">{qrError}</Alert>
+        ) : qrInfo ? (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto inline-block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <img
+                src={qrInfo.qrDataUrl}
+                alt="题库分享二维码"
+                className="mx-auto h-56 w-56 rounded-lg object-contain"
+              />
+              <div className="mt-2 font-mono text-sm font-bold tracking-wider text-brand-700">
+                分享码：{qrInfo.shareCode}
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-500">
+                共 {qrInfo.questionCount} 道题
+                {qrInfo.requiresPassword ? ' · 需口令访问' : ''}
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              可保存二维码图片发送至微信好友/学习群，好友微信扫码或在 PrismQ 中输入分享码即可加入刷题。
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button
+                variant="secondary"
+                icon={copiedFlag === 'wx' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                onClick={async () => {
+                  const wxText = `【PrismQ 棱题题库分享】${qrInfo.title}（${qrInfo.questionCount}题）\n分享码：${qrInfo.shareCode}\n链接：${qrInfo.shareUrl}`;
+                  const ok = await copyTextSafe(wxText);
+                  if (ok) {
+                    setCopiedFlag('wx');
+                    setTimeout(() => setCopiedFlag(null), 1800);
+                  }
+                }}
+              >
+                {copiedFlag === 'wx' ? '已复制微信文案' : '复制微信分享文案'}
+              </Button>
+              <a
+                href={qrInfo.qrDataUrl}
+                download={`PrismQ_题库_${qrInfo.shareCode}.png`}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-4 text-xs font-semibold text-white transition hover:bg-brand-700"
+              >
+                <Download className="h-3.5 w-3.5" /> 保存二维码图片
+              </a>
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

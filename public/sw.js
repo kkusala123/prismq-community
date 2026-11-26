@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kaoshibao-pro-shell-v2';
+const CACHE_NAME = 'prismq-shell-v3';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {

@@ -7,14 +7,19 @@ import {
   Lock,
   Send,
   ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   QUESTION_TYPE_LABELS,
+  type CheatEventItem,
+  type ExamDeviceInfo,
   type QuestionOption,
   type QuestionType,
 } from '../../shared/types.js';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { attachWebAntiCheatMonitor, inspectWebEnvironment } from '../lib/examSecurity';
+import { RichCodeText } from '../components/RichCodeText';
 import {
   Alert,
   Badge,
@@ -31,13 +36,22 @@ interface ExamMeta {
   description: string;
   creatorName: string;
   shareCode: string;
+  examType?: 'mock' | 'published';
   hasPassword: boolean;
   allowGuest: boolean;
   durationMinutes: number;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  endedAt?: string | null;
+  notStarted?: boolean;
+  expired?: boolean;
   totalScore: number;
   passScore: number;
   maxTabSwitches: number;
   maxAttempts: number;
+  blockEmulator?: boolean;
+  strictAntiCheat?: boolean;
+  autoSubmitOnCheat?: boolean;
   status: string;
   questionCount: number;
 }
@@ -67,16 +81,34 @@ export const ExamTakePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const [started, setStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [participantName, setParticipantName] = useState('');
   const [participantIdentifier, setParticipantIdentifier] = useState('');
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [totalExamSeconds, setTotalExamSeconds] = useState(3600);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [cheatEvents, setCheatEvents] = useState<CheatEventItem[]>([]);
+  const [deviceInfo, setDeviceInfo] = useState<ExamDeviceInfo>({});
   const [tabWarningMsg, setTabWarningMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
   const startedAtRef = useRef<string>(new Date().toISOString());
+  const answersRef = useRef<Record<string, string>>({});
+  answersRef.current = answers;
+  const tabSwitchRef = useRef(0);
+  tabSwitchRef.current = tabSwitchCount;
+  const cheatEventsRef = useRef<CheatEventItem[]>([]);
+  cheatEventsRef.current = cheatEvents;
+  const submittingRef = useRef(false);
+  submittingRef.current = submitting;
 
   const draftStorageKey = `kaoshibao_exam_draft_${shareCode.toUpperCase()}`;
+
+  useEffect(() => {
+    setDeviceInfo(inspectWebEnvironment());
+  }, []);
 
   useEffect(() => {
     if (user && !participantName) {
@@ -100,7 +132,9 @@ export const ExamTakePage: React.FC = () => {
       setRequiresPassword(data.requiresPassword);
       setRequiresLogin(Boolean(data.requiresLogin));
       setQuestions(data.questions || []);
-      setSecondsLeft((data.exam.durationMinutes || 60) * 60);
+      const defaultSecs = (data.exam.durationMinutes || 60) * 60;
+      setSecondsLeft(defaultSecs);
+      setTotalExamSeconds(defaultSecs);
 
       try {
         const cached = localStorage.getItem(draftStorageKey);
@@ -123,20 +157,25 @@ export const ExamTakePage: React.FC = () => {
   }, [shareCode]);
 
   const submitExam = async (autoReason?: string) => {
-    if (submitting || !exam) return;
+    if (submittingRef.current || !exam) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
-      const elapsed = Math.max(1, exam.durationMinutes * 60 - Math.max(0, secondsLeft));
+      const elapsed = Math.max(1, totalExamSeconds - Math.max(0, secondsLeft));
+      const latestDevice = inspectWebEnvironment();
       const res = await apiFetch<{ submission: { id: string } }>(
         `/api/exams/join/${shareCode}/submit`,
         {
           method: 'POST',
           json: {
+            sessionId,
             participantName: participantName.trim(),
             participantIdentifier: participantIdentifier.trim(),
-            answers,
+            answers: answersRef.current,
             durationSeconds: elapsed,
-            tabSwitchCount,
+            tabSwitchCount: tabSwitchRef.current,
+            cheatEvents: cheatEventsRef.current,
+            deviceInfo: latestDevice,
             accessPassword,
             startedAt: startedAtRef.current,
           },
@@ -148,10 +187,65 @@ export const ExamTakePage: React.FC = () => {
       });
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : '交卷失败');
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
+  const handleStartExam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!exam || !participantName.trim() || starting) return;
+    setLoadError('');
+    const currentDevice = inspectWebEnvironment();
+    setDeviceInfo(currentDevice);
+
+    if (exam.blockEmulator && (currentDevice.isEmulator || currentDevice.isVirtualSpace)) {
+      setLoadError(
+        `检测到当前处于虚拟机、模拟器或自动化测试环境（${currentDevice.reasons?.join('；') || '环境异常'}），本场考试禁止该环境参考。`
+      );
+      return;
+    }
+
+    setStarting(true);
+    try {
+      const initEvents: CheatEventItem[] = currentDevice.isMultiWindow
+        ? [
+            {
+              type: 'small_window',
+              detail: '开考时处于非全屏小窗/分屏状态',
+              timestamp: new Date().toISOString(),
+            },
+          ]
+        : [];
+      const res = await apiFetch<{
+        sessionId: string;
+        startedAt: string;
+        effectiveDurationSeconds: number;
+      }>(`/api/exams/join/${shareCode}/start`, {
+        method: 'POST',
+        json: {
+          participantName: participantName.trim(),
+          participantIdentifier: participantIdentifier.trim(),
+          accessPassword,
+          deviceInfo: currentDevice,
+          cheatEvents: initEvents,
+        },
+      });
+      startedAtRef.current = res.startedAt;
+      setSessionId(res.sessionId);
+      setCheatEvents(initEvents);
+      const eff = Math.max(10, res.effectiveDurationSeconds || exam.durationMinutes * 60);
+      setTotalExamSeconds(eff);
+      setSecondsLeft(eff);
+      setStarted(true);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : '开考校验失败');
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  // 倒计时器
   useEffect(() => {
     if (!started || submitting) return;
     const timer = window.setInterval(() => {
@@ -167,27 +261,87 @@ export const ExamTakePage: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [started, submitting]);
 
+  // 全面防作弊监测（个人自测开启 strictAntiCheat=false 时自动跳过）
   useEffect(() => {
-    if (!started || !exam) return;
-    const handleLeave = () => {
-      if (document.hidden) {
+    if (!started || !exam || exam.strictAntiCheat === false) return;
+    const detach = attachWebAntiCheatMonitor({
+      strictAntiCheat: exam.strictAntiCheat !== false,
+      onViolation: (ev) => {
+        setCheatEvents((prev) => [...prev.slice(-99), ev]);
         setTabSwitchCount((prev) => {
           const next = prev + 1;
-          setTabWarningMsg(
+          const limitText =
             exam.maxTabSwitches > 0
-              ? `系统检测到离开考场页面！已记录切屏 ${next} / ${exam.maxTabSwitches} 次，超限将自动交卷！`
-              : `系统检测到切屏离开考场（已记录 ${next} 次）`
-          );
-          if (exam.maxTabSwitches > 0 && next >= exam.maxTabSwitches) {
-            void submitExam('切屏次数达到上限，系统已自动交卷');
+              ? `（累计违规 ${next} / ${exam.maxTabSwitches} 次${exam.autoSubmitOnCheat !== false ? '，超限将自动交卷' : ''}）`
+              : `（累计违规 ${next} 次）`;
+          setTabWarningMsg(`风控警示：${ev.detail} ${limitText}`);
+          if (
+            exam.autoSubmitOnCheat !== false &&
+            exam.maxTabSwitches > 0 &&
+            next >= exam.maxTabSwitches
+          ) {
+            void submitExam('切屏/小窗/失焦违规次数达到上限，系统已自动强制交卷');
           }
           return next;
         });
+      },
+    });
+    return detach;
+  }, [started, exam]);
+
+  // 实时心跳同步答案 & 检测组织者主动终结 / 到时自动收卷
+  useEffect(() => {
+    if (!started || !sessionId || !exam) return;
+    const sendHeartbeat = async () => {
+      if (submittingRef.current) return;
+      try {
+        const res = await apiFetch<{
+          examStatus: string;
+          terminated: boolean;
+          forceSubmitted?: boolean;
+          submissionId?: string | null;
+          remainingServerSeconds?: number;
+        }>(`/api/exams/join/${shareCode}/heartbeat`, {
+          method: 'POST',
+          json: {
+            sessionId,
+            answers: answersRef.current,
+            tabSwitchCount: tabSwitchRef.current,
+            cheatEvents: cheatEventsRef.current,
+            deviceInfo: inspectWebEnvironment(),
+          },
+        });
+
+        if (res.terminated) {
+          localStorage.removeItem(draftStorageKey);
+          if (res.submissionId) {
+            navigate(`/exam/report/${res.submissionId}`, {
+              state: {
+                notice:
+                  res.examStatus === 'expired'
+                    ? '本场考试已达截止时间，系统已按最新作答自动收卷'
+                    : '组织者已主动终结本场考试，系统已按你当前作答自动收卷',
+              },
+            });
+          } else {
+            void submitExam('本场考试已由组织者主动终结，系统自动交卷');
+          }
+          return;
+        }
+
+        if (typeof res.remainingServerSeconds === 'number') {
+          setSecondsLeft((prev) => Math.min(prev, res.remainingServerSeconds!));
+        }
+      } catch {
+        // 网络抖动时容错跳过本次心跳
       }
     };
-    document.addEventListener('visibilitychange', handleLeave);
-    return () => document.removeEventListener('visibilitychange', handleLeave);
-  }, [started, exam, answers, tabSwitchCount]);
+
+    const timer = window.setInterval(() => {
+      void sendHeartbeat();
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [started, sessionId, exam, shareCode]);
 
   const updateAnswer = (qid: string, val: string) => {
     setAnswers((prev) => {
@@ -284,10 +438,29 @@ export const ExamTakePage: React.FC = () => {
   }
 
   if (!started) {
+    const blockedState =
+      exam.status !== 'active'
+        ? '本场考试当前已被发起者终结或关闭，无法开始作答。'
+        : exam.notStarted
+          ? `考试尚未开始，开考时间为 ${new Date(exam.startsAt!).toLocaleString()}`
+          : exam.expired
+            ? `考试已超过截止时间（${new Date(exam.endsAt!).toLocaleString()}），无法入场。`
+            : '';
+
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F6F8FB] px-4 py-10">
         <Card className="w-full max-w-lg rounded-2xl shadow-card-hover" padding="lg">
-          <Badge tone="brand">考场分享码：{exam.shareCode}</Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="brand">考场分享码：{exam.shareCode}</Badge>
+            {exam.examType === 'mock' && (
+              <Badge tone="success">个人自测模式 · 交卷即出分与解析</Badge>
+            )}
+            {exam.blockEmulator && (
+              <Badge tone="danger">
+                <ShieldCheck className="h-3 w-3" /> 禁止虚拟机/模拟器
+              </Badge>
+            )}
+          </div>
           <h1 className="mt-3 text-2xl font-bold text-slate-900">{exam.title}</h1>
           {exam.description && <p className="mt-2 text-sm text-slate-600">{exam.description}</p>}
 
@@ -311,27 +484,44 @@ export const ExamTakePage: React.FC = () => {
               </div>
             </div>
             <div>
-              <div className="text-slate-500">防切屏限制</div>
+              <div className="text-slate-500">防切屏/小窗</div>
               <div className="mt-0.5 text-sm font-bold text-rose-600 tabular-nums">
-                {exam.maxTabSwitches > 0 ? `${exam.maxTabSwitches} 次` : '不限制'}
+                {exam.maxTabSwitches > 0 ? `限 ${exam.maxTabSwitches} 次` : '仅记录'}
               </div>
             </div>
           </div>
 
-          {exam.status !== 'active' ? (
+          {(exam.startsAt || exam.endsAt) && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+              {exam.startsAt && <div>开考时间：{new Date(exam.startsAt).toLocaleString()}</div>}
+              {exam.endsAt && <div>截止收卷：{new Date(exam.endsAt).toLocaleString()}</div>}
+            </div>
+          )}
+
+          {exam.strictAntiCheat !== false && (
+            <Alert tone="info" className="mt-3 text-xs">
+              已启用严厉监考：离开考场、切换标签页、开启小窗/分屏、窗口失焦或调出开发者工具均会实时记录并同步至组织者。
+            </Alert>
+          )}
+
+          {exam.strictAntiCheat !== false && deviceInfo.isEmulator && (
+            <Alert tone="warning" className="mt-3 text-xs">
+              当前浏览器疑似运行在虚拟化/自动化环境：{deviceInfo.reasons?.join('；')}
+            </Alert>
+          )}
+
+          {loadError && (
+            <Alert tone="error" className="mt-3">
+              {loadError}
+            </Alert>
+          )}
+
+          {blockedState ? (
             <Alert tone="error" className="mt-5">
-              本场考试当前已关闭，无法开始作答。
+              {blockedState}
             </Alert>
           ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!participantName.trim()) return;
-                startedAtRef.current = new Date().toISOString();
-                setStarted(true);
-              }}
-              className="mt-5 space-y-3"
-            >
+            <form onSubmit={handleStartExam} className="mt-5 space-y-3">
               <div>
                 <label className={LABEL_CLS}>考生姓名（必填）</label>
                 <input
@@ -353,8 +543,10 @@ export const ExamTakePage: React.FC = () => {
                   className={INPUT_CLS}
                 />
               </div>
-              <Button type="submit" size="lg" className="mt-2 w-full">
-                我已确认，立即开始答题计时
+              <Button type="submit" size="lg" loading={starting} className="mt-2 w-full">
+                {exam.examType === 'mock' && exam.strictAntiCheat === false
+                  ? '立即开始自测'
+                  : '我已确认考试纪律，立即开始答题计时'}
               </Button>
             </form>
           )}
@@ -379,7 +571,7 @@ export const ExamTakePage: React.FC = () => {
           <div className="flex items-center gap-2.5">
             {tabSwitchCount > 0 && (
               <Badge tone="danger">
-                <ShieldAlert className="h-3 w-3" /> 切屏 {tabSwitchCount}
+                <ShieldAlert className="h-3 w-3" /> 异常 {tabSwitchCount}
               </Badge>
             )}
             <div
@@ -433,9 +625,10 @@ export const ExamTakePage: React.FC = () => {
                 )}
               </div>
 
-              <p className="mb-4 whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-900 sm:text-base">
-                {q.stem}
-              </p>
+              <RichCodeText
+                text={q.stem}
+                className="mb-4 text-sm font-medium leading-relaxed text-slate-900 sm:text-base"
+              />
 
               {q.options.length > 0 && (
                 <div className="space-y-2">
@@ -453,14 +646,14 @@ export const ExamTakePage: React.FC = () => {
                             ? toggleMultiOption(q.questionId, opt.key)
                             : updateAnswer(q.questionId, opt.key)
                         }
-                        className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm transition ${
+                        className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left text-sm transition ${
                           isSelected
                             ? 'border-brand-600 bg-brand-50 font-medium text-brand-950'
                             : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
                         }`}
                       >
                         <span
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-xs font-bold ${
+                          className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-xs font-bold ${
                             isSelected
                               ? 'border-brand-600 bg-brand-600 text-white'
                               : 'border-slate-300 bg-slate-50 text-slate-700'
@@ -468,7 +661,7 @@ export const ExamTakePage: React.FC = () => {
                         >
                           {displayKey}
                         </span>
-                        <span>{opt.content}</span>
+                        <RichCodeText text={opt.content} inline className="flex-1" />
                       </button>
                     );
                   })}

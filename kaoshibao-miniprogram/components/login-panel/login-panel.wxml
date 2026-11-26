@@ -1,0 +1,88 @@
+<view class="login-page">
+<view class="login">
+    <text class="login-title">登录棱题</text>
+    <text class="login-desc">使用网站账号登录，直接读写你服务器上的同一份题库、刷题记录与成绩。</text>
+
+    <!-- 微信一键登录：仅当服务端已配置 WECHAT_APPID/APPSECRET 时显示 -->
+    <button
+        wx:if="{{wechatEnabled}}"
+        class="login-button login-button-wechat"
+        loading="{{wechatLoading}}"
+        disabled="{{submitting}}"
+        bindtap="onWechatLogin"
+    >微信一键登录</button>
+    <view wx:if="{{wechatEnabled}}" class="login-divider">
+        <view class="login-divider-line"></view>
+        <text class="login-divider-text">或使用网站账号</text>
+        <view class="login-divider-line"></view>
+    </view>
+
+    <view class="login-tabs" wx:if="{{allowRegistration}}">
+        <view class="login-tab {{mode === 'login' ? 'login-tab-active' : ''}}" data-mode="login" bindtap="switchMode">登录</view>
+        <view class="login-tab {{mode === 'register' ? 'login-tab-active' : ''}}" data-mode="register" bindtap="switchMode">注册</view>
+    </view>
+
+    <block wx:if="{{mode === 'login'}}">
+        <input
+            class="login-input"
+            type="text"
+            placeholder="用户名或邮箱"
+            placeholder-class="login-placeholder"
+            value="{{account}}"
+            bindinput="onAccountInput"
+        />
+        <input
+            class="login-input"
+            password="{{true}}"
+            placeholder="密码"
+            placeholder-class="login-placeholder"
+            value="{{password}}"
+            bindinput="onPasswordInput"
+            bindconfirm="submit"
+        />
+    </block>
+    <block wx:elif="{{allowRegistration}}">
+        <input
+            class="login-input"
+            type="text"
+            placeholder="用户名（3-32 位字母数字）"
+            placeholder-class="login-placeholder"
+            value="{{username}}"
+            bindinput="onUsernameInput"
+        />
+        <input
+            class="login-input"
+            type="text"
+            placeholder="邮箱"
+            placeholder-class="login-placeholder"
+            value="{{email}}"
+            bindinput="onEmailInput"
+        />
+        <input
+            class="login-input"
+            type="text"
+            placeholder="昵称（可选）"
+            placeholder-class="login-placeholder"
+            value="{{nickname}}"
+            bindinput="onNicknameInput"
+        />
+        <input
+            class="login-input"
+            password="{{true}}"
+            placeholder="密码（至少 6 位）"
+            placeholder-class="login-placeholder"
+            value="{{password}}"
+            bindinput="onPasswordInput"
+            bindconfirm="submit"
+        />
+        <text class="login-tip" wx:if="{{needsSetup}}">当前服务器还没有账号，首个注册用户将成为管理员。</text>
+    </block>
+
+    <text class="login-tip" wx:if="{{!allowRegistration}}">服务器已关闭自助注册，请联系管理员开通账号。</text>
+
+    <button class="login-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">{{mode === 'login' || !allowRegistration ? '登录' : '注册并登录'}}</button>
+
+    <text class="login-tip" wx:if="{{tip}}">{{tip}}</text>
+    <text class="login-error" wx:if="{{error}}">{{error}}</text>
+</view>
+</view>

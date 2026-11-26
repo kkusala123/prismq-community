@@ -6,6 +6,14 @@ import { createRateLimiter } from '../middleware/security.js';
 import { normalizeAnswer } from '../services/grader.js';
 import { exportQuestionsToDocx, exportQuestionsToWorkbook } from '../services/parser.js';
 import { batchInsertQuestionsToBank } from '../services/bankImport.js';
+import { getAppConfig } from '../config.js';
+import { normalizeCodeInText } from '../../shared/codeFormatter.js';
+import {
+  generateQrDataUrl,
+  generateQrPngBuffer,
+  generateQrSvg,
+  resolveShareOrigin,
+} from '../services/qrcode.js';
 import {
   isPresent,
   sanitizeDisplayName,
@@ -273,7 +281,7 @@ export function createBanksRouter(db: DbClient): Router {
            EXISTS (SELECT 1 FROM bank_shares bs WHERE bs.bank_id = b.id AND bs.user_id = $2) AS is_shared
          FROM question_banks b
          JOIN users u ON u.id = b.owner_id
-         WHERE UPPER(b.share_code) = $1 AND b.share_enabled = TRUE`,
+         WHERE UPPER(b.share_code) = $1 AND (b.share_enabled = TRUE OR b.visibility = 'public')`,
         [code, req.user!.userId]
       );
 
@@ -324,7 +332,7 @@ export function createBanksRouter(db: DbClient): Router {
       }>(
         `SELECT id, owner_id, title, visibility, share_password
          FROM question_banks
-         WHERE UPPER(share_code) = $1 AND share_enabled = TRUE`,
+         WHERE UPPER(share_code) = $1 AND (share_enabled = TRUE OR visibility = 'public')`,
         [code]
       );
 
@@ -553,10 +561,12 @@ export function createBanksRouter(db: DbClient): Router {
           isSharedWithMe: access.isSharedWithMe,
           sharedUserCount: access.canEdit ? Number(access.bank.shared_user_count ?? 0) : 0,
           shareEnabled: access.canEdit ? Boolean(access.bank.share_enabled) : false,
-          ...(access.canEdit
+          ...(access.canEdit || access.bank.visibility === 'public'
             ? {
                 shareCode: access.bank.share_code || '',
-                hasSharePassword: Boolean(access.bank.share_password && access.bank.share_password.trim()),
+                hasSharePassword: access.canEdit
+                  ? Boolean(access.bank.share_password && access.bank.share_password.trim())
+                  : false,
               }
             : {}),
           lastProgressIndex: Number(progRows[0]?.last_question_index ?? 0),
@@ -705,6 +715,140 @@ export function createBanksRouter(db: DbClient): Router {
     } catch (err) {
       console.error('[clone bank]', err);
       res.status(500).json({ error: '克隆题库失败' });
+    }
+  });
+
+  // 题库二维码分享（公开题库所有有读权限成员可生成；私有题库作者可一键开启并生成）
+  router.get('/:id/share-qrcode', requireAuth, async (req, res) => {
+    try {
+      const access = await findBankWithAccess(String(req.params.id), req.user!.userId, req.user!.role);
+      if (!access || !access.canRead) {
+        res.status(404).json({ error: '题库不存在或无权访问' });
+        return;
+      }
+
+      const isPublic = access.bank.visibility === 'public';
+      if (!isPublic && !access.canEdit && !access.bank.share_enabled) {
+        res.status(403).json({ error: '该私有题库暂未开启二维码分享，请联系作者开启' });
+        return;
+      }
+
+      let shareCode = String(access.bank.share_code || '').trim();
+      let shareEnabled = Boolean(access.bank.share_enabled);
+      if (!shareCode || (!shareEnabled && (isPublic || access.canEdit))) {
+        if (!shareCode) {
+          shareCode = await generateUniqueBankShareCode(db);
+        }
+        shareEnabled = true;
+        await db.query(
+          `UPDATE question_banks
+           SET share_code = $1, share_enabled = TRUE, updated_at = NOW()
+           WHERE id = $2`,
+          [shareCode, access.bank.id]
+        );
+      }
+
+      const cfg = getAppConfig();
+      const origin = resolveShareOrigin(req, cfg);
+      const shareUrl = `${origin}/banks/share/${shareCode}`;
+      const miniProgramPath = `/pages/bank-share/bank-share?code=${shareCode}`;
+      const format = String(req.query.format || 'json').trim().toLowerCase();
+
+      if (format === 'png') {
+        const png = await generateQrPngBuffer(shareUrl, 440);
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'no-store');
+        res.send(png);
+        return;
+      }
+      if (format === 'svg') {
+        const svg = await generateQrSvg(shareUrl, 340);
+        res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.send(svg);
+        return;
+      }
+
+      const qrDataUrl = await generateQrDataUrl(shareUrl, 420);
+      const { rows: cntRows } = await db.query<{ cnt: string | number }>(
+        'SELECT COUNT(*) AS cnt FROM questions WHERE bank_id = $1',
+        [access.bank.id]
+      );
+
+      res.json({
+        bankId: access.bank.id,
+        title: access.bank.title,
+        visibility: access.bank.visibility,
+        shareCode,
+        shareEnabled,
+        requiresPassword: !isPublic && Boolean(access.bank.share_password && access.bank.share_password.trim()),
+        questionCount: Number(cntRows[0]?.cnt ?? 0),
+        shareUrl,
+        miniProgramPath,
+        qrDataUrl,
+      });
+    } catch (err) {
+      console.error('[bank share qrcode]', err);
+      res.status(500).json({ error: '生成题库分享二维码失败' });
+    }
+  });
+
+  // 一键规范化题库中的代码片段排版与围栏格式
+  router.post('/:id/format-code', requireAuth, async (req, res) => {
+    try {
+      const access = await findBankWithAccess(String(req.params.id), req.user!.userId, req.user!.role);
+      if (!access || !access.canEdit) {
+        res.status(403).json({ error: '仅题库作者或管理员可批量规范代码格式' });
+        return;
+      }
+
+      const { rows } = await db.query<{
+        id: string;
+        stem: string;
+        options: QuestionOption[];
+        explanation: string;
+      }>('SELECT id, stem, options, explanation FROM questions WHERE bank_id = $1', [access.bank.id]);
+
+      let formattedCount = 0;
+      await db.withTransaction(async (tx) => {
+        for (const q of rows) {
+          const nextStem = normalizeCodeInText(String(q.stem || ''));
+          const nextExplanation = q.explanation ? normalizeCodeInText(String(q.explanation)) : '';
+          const origOpts = Array.isArray(q.options) ? q.options : [];
+          const nextOpts = origOpts.map((o) => ({
+            ...o,
+            content:
+              o.content && (o.content.includes('```') || o.content.includes('\n'))
+                ? normalizeCodeInText(o.content)
+                : o.content,
+          }));
+          const changed =
+            nextStem !== String(q.stem || '') ||
+            nextExplanation !== String(q.explanation || '') ||
+            JSON.stringify(nextOpts) !== JSON.stringify(origOpts);
+          if (changed) {
+            formattedCount += 1;
+            await tx.query(
+              `UPDATE questions
+               SET stem = $1, options = $2::jsonb, explanation = $3, updated_at = NOW()
+               WHERE id = $4`,
+              [nextStem, JSON.stringify(nextOpts), nextExplanation, q.id]
+            );
+          }
+        }
+        if (formattedCount > 0) {
+          await tx.query('UPDATE question_banks SET updated_at = NOW() WHERE id = $1', [access.bank.id]);
+        }
+      });
+
+      res.json({
+        ok: true,
+        scannedCount: rows.length,
+        formattedCount,
+      });
+    } catch (err) {
+      console.error('[format bank code]', err);
+      res.status(500).json({ error: '规范化题库代码格式失败' });
     }
   });
 
@@ -935,14 +1079,20 @@ export function createBanksRouter(db: DbClient): Router {
       }
 
       const type = String(req.body?.type ?? 'single') as QuestionType;
-      const stem = String(req.body?.stem ?? '').trim();
-      if (!stem) {
+      const rawStem = String(req.body?.stem ?? '').trim();
+      if (!rawStem) {
         res.status(400).json({ error: '题干不能为空' });
         return;
       }
-      const options = sanitizeOptions(type, req.body?.options);
+      const stem = normalizeCodeInText(rawStem);
+      const options = sanitizeOptions(type, req.body?.options).map((opt) =>
+        opt.content.includes('```') || opt.content.includes('\n')
+          ? { ...opt, content: normalizeCodeInText(opt.content) }
+          : opt
+      );
       const answer = normalizeAnswer(type, String(req.body?.answer ?? ''));
-      const explanation = String(req.body?.explanation ?? '').trim();
+      const rawExplanation = String(req.body?.explanation ?? '').trim();
+      const explanation = rawExplanation ? normalizeCodeInText(rawExplanation) : '';
       const difficulty = Math.min(5, Math.max(1, Number(req.body?.difficulty ?? 2) || 2));
       const starRating = Math.min(5, Math.max(0, Math.round(Number(req.body?.starRating ?? 0) || 0)));
       const ratingReason = String(req.body?.ratingReason ?? '').trim().slice(0, 80);
@@ -1027,14 +1177,20 @@ export function createBanksRouter(db: DbClient): Router {
       }
 
       const type = String(req.body?.type ?? 'single') as QuestionType;
-      const stem = String(req.body?.stem ?? '').trim();
-      if (!stem) {
+      const rawStem = String(req.body?.stem ?? '').trim();
+      if (!rawStem) {
         res.status(400).json({ error: '题干不能为空' });
         return;
       }
-      const options = sanitizeOptions(type, req.body?.options);
+      const stem = normalizeCodeInText(rawStem);
+      const options = sanitizeOptions(type, req.body?.options).map((opt) =>
+        opt.content.includes('```') || opt.content.includes('\n')
+          ? { ...opt, content: normalizeCodeInText(opt.content) }
+          : opt
+      );
       const answer = normalizeAnswer(type, String(req.body?.answer ?? ''));
-      const explanation = String(req.body?.explanation ?? '').trim();
+      const rawExplanation = String(req.body?.explanation ?? '').trim();
+      const explanation = rawExplanation ? normalizeCodeInText(rawExplanation) : '';
       const difficulty = Math.min(5, Math.max(1, Number(req.body?.difficulty ?? 2) || 2));
       const tags = Array.isArray(req.body?.tags) ? req.body.tags.map(String) : [];
       const chapterId = req.body?.chapterId ? String(req.body.chapterId) : null;

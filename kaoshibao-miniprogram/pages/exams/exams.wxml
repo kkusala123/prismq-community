@@ -1,0 +1,243 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap">
+    <!-- 分享码入场与发起考试 -->
+    <view class="join-card">
+        <view class="between">
+            <text class="join-title">考场与自由自测</text>
+            <view class="row" style="gap: 10rpx;">
+                <button class="create-entry-btn" bindtap="openSelfTestModal">📝 自测组卷</button>
+                <button class="create-entry-btn" bindtap="openCreateModal">+ 发起考试</button>
+            </view>
+        </view>
+        <text class="join-desc">输入 8 位考场分享码直接入场；任何人皆可发起严谨监考考试</text>
+        <view class="join-row">
+            <input class="join-input" value="{{joinCode}}" bindinput="onJoinInput" placeholder="例如 DEMO2026" placeholder-class="ph" maxlength="12" />
+            <button class="btn btn-primary btn-sm join-btn" bindtap="joinExam">进考场</button>
+        </view>
+    </view>
+
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在加载考试</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="retry">重新加载</button>
+    </view>
+
+    <block wx:else>
+        <view class="section-head">
+            <text class="title-md">可参加的考试</text>
+            <text wx:if="{{isDemo}}" class="tag tag-warning">演示数据</text>
+        </view>
+
+        <view wx:if="{{exams.length === 0}}" class="card empty-card">
+            <text class="state-icon">○</text>
+            <text class="state-title">暂无可用考试</text>
+            <text class="state-desc">组织者发布考试后会出现在这里，也可用分享码直接入场</text>
+        </view>
+
+        <view class="card exam-card" wx:for="{{exams}}" wx:key="id" data-id="{{item.id}}" data-code="{{item.shareCode}}" bindtap="openExam">
+            <view class="exam-head">
+                <view class="flex1">
+                    <text class="exam-title">{{item.title}}</text>
+                    <text class="exam-desc">{{item.description}}</text>
+                </view>
+                <text class="tag {{item.status === 'active' ? 'tag-success' : 'tag-gray'}}">{{item.status === 'active' ? '进行中' : '已结束'}}</text>
+            </view>
+
+            <view class="exam-meta">
+                <view class="meta-item">
+                    <text class="meta-value">{{item.questionCount}}</text>
+                    <text class="meta-label">题数</text>
+                </view>
+                <view class="meta-item">
+                    <text class="meta-value">{{item.durationMinutes}}</text>
+                    <text class="meta-label">分钟</text>
+                </view>
+                <view class="meta-item">
+                    <text class="meta-value">{{item.avgAccuracyText}}</text>
+                    <text class="meta-label">平均正确率</text>
+                </view>
+                <view class="meta-item">
+                    <text class="meta-value">{{item.inProgressCount || 0}}</text>
+                    <text class="meta-label">在考</text>
+                </view>
+            </view>
+
+            <view class="exam-foot">
+                <text class="exam-code">分享码 {{item.shareCode}}</text>
+                <view class="exam-actions">
+                    <button wx:if="{{item.isOwner}}" class="btn btn-outline btn-xs" data-id="{{item.id}}" catchtap="openAnalytics">考情</button>
+                    <button wx:if="{{item.isOwner}}" class="btn btn-outline btn-xs" data-id="{{item.id}}" catchtap="openExamQr">分享</button>
+                    <button wx:if="{{item.isOwner && item.status === 'active'}}" class="btn btn-danger-xs" data-id="{{item.id}}" data-title="{{item.title}}" catchtap="confirmTerminate">终结</button>
+                    <button class="btn btn-primary btn-xs" data-id="{{item.id}}" data-code="{{item.shareCode}}" catchtap="openExam">进入</button>
+                </view>
+            </view>
+        </view>
+
+        <!-- 我的成绩 -->
+        <view class="section-head">
+            <text class="title-md">我的考试记录</text>
+        </view>
+
+        <view wx:if="{{submissions.length === 0}}" class="card empty-card">
+            <text class="state-icon">○</text>
+            <text class="state-title">还没有考试记录</text>
+            <text class="state-desc">完成一场考试后，成绩与答题解析会保存在这里</text>
+        </view>
+
+        <view class="card record-card" wx:for="{{submissions}}" wx:key="id" data-id="{{item.id}}" bindtap="openReport">
+            <view class="record-left">
+                <text class="record-title ellipsis">{{item.examTitle}}</text>
+                <text class="record-meta">{{item.dateText}} · 正确率 {{item.accuracyText}} · {{item.correctCount}}/{{item.totalQuestions}}</text>
+            </view>
+            <view class="record-right">
+                <text class="record-score {{item.isPassed ? 'score-pass' : 'score-fail'}}">{{item.score}}</text>
+                <text class="record-pass">{{item.passText}}</text>
+            </view>
+        </view>
+    </block>
+
+    <!-- 自测组卷 / 发起考试弹窗 -->
+    <view wx:if="{{showCreateModal}}" class="modal-mask" bindtap="closeCreateModal">
+        <view class="modal-sheet" catchtap="noop">
+            <view class="between">
+                <text class="title-md">{{formExamType === 'mock' ? '自由自测组卷' : '发起正式考试'}}</text>
+                <text class="modal-close" bindtap="closeCreateModal">✕</text>
+            </view>
+
+            <view class="mode-tab-row">
+                <view class="mode-tab {{formExamType === 'mock' ? 'mode-tab-active' : ''}}" data-mode="mock" bindtap="switchCreateMode">自由自测</view>
+                <view class="mode-tab {{formExamType === 'published' ? 'mode-tab-active' : ''}}" data-mode="published" bindtap="switchCreateMode">正式考场</view>
+            </view>
+
+            <view class="form-row">
+                <text class="form-lbl">来源题库</text>
+                <picker mode="selector" range="{{bankNames}}" value="{{bankIdx}}" bindchange="onPickBank">
+                    <view class="form-picker">{{bankNames[bankIdx] || '请选择题库 ›'}}</view>
+                </picker>
+            </view>
+            <view class="form-row">
+                <text class="form-lbl">{{formExamType === 'mock' ? '自测卷名称' : '考试名称'}}</text>
+                <input class="form-input" value="{{formTitle}}" data-field="formTitle" bindinput="onFormInput" placeholder="填写试卷名称" />
+            </view>
+
+            <view class="form-switch-row">
+                <text class="form-lbl-inline">按题型自由配题（单选/判断等）</text>
+                <switch checked="{{useCustomCounts}}" bindchange="toggleCustomCounts" color="#2554A8" />
+            </view>
+
+            <view wx:if="{{useCustomCounts}}" class="type-config-box">
+                <view wx:if="{{loadingBankTypes}}" class="type-loading">正在读取题库题型库存…</view>
+                <block wx:else>
+                    <view class="type-stepper-row">
+                        <text class="type-stepper-lbl">单选题（可用 {{typeAvail.single}}）</text>
+                        <view class="type-stepper">
+                            <text class="step-btn" data-type="single" data-delta="-1" bindtap="stepTypeCount">-</text>
+                            <input class="step-input" type="number" value="{{typeCounts.single}}" data-type="single" bindinput="inputTypeCount" />
+                            <text class="step-btn" data-type="single" data-delta="1" bindtap="stepTypeCount">+</text>
+                        </view>
+                    </view>
+                    <view class="type-stepper-row">
+                        <text class="type-stepper-lbl">多选题（可用 {{typeAvail.multiple}}）</text>
+                        <view class="type-stepper">
+                            <text class="step-btn" data-type="multiple" data-delta="-1" bindtap="stepTypeCount">-</text>
+                            <input class="step-input" type="number" value="{{typeCounts.multiple}}" data-type="multiple" bindinput="inputTypeCount" />
+                            <text class="step-btn" data-type="multiple" data-delta="1" bindtap="stepTypeCount">+</text>
+                        </view>
+                    </view>
+                    <view class="type-stepper-row">
+                        <text class="type-stepper-lbl">判断题（可用 {{typeAvail.boolean}}）</text>
+                        <view class="type-stepper">
+                            <text class="step-btn" data-type="boolean" data-delta="-1" bindtap="stepTypeCount">-</text>
+                            <input class="step-input" type="number" value="{{typeCounts.boolean}}" data-type="boolean" bindinput="inputTypeCount" />
+                            <text class="step-btn" data-type="boolean" data-delta="1" bindtap="stepTypeCount">+</text>
+                        </view>
+                    </view>
+                    <view class="type-stepper-row">
+                        <text class="type-stepper-lbl">填空题（可用 {{typeAvail.fill}}）</text>
+                        <view class="type-stepper">
+                            <text class="step-btn" data-type="fill" data-delta="-1" bindtap="stepTypeCount">-</text>
+                            <input class="step-input" type="number" value="{{typeCounts.fill}}" data-type="fill" bindinput="inputTypeCount" />
+                            <text class="step-btn" data-type="fill" data-delta="1" bindtap="stepTypeCount">+</text>
+                        </view>
+                    </view>
+                    <view class="type-stepper-row">
+                        <text class="type-stepper-lbl">简答题（可用 {{typeAvail.short}}）</text>
+                        <view class="type-stepper">
+                            <text class="step-btn" data-type="short" data-delta="-1" bindtap="stepTypeCount">-</text>
+                            <input class="step-input" type="number" value="{{typeCounts.short}}" data-type="short" bindinput="inputTypeCount" />
+                            <text class="step-btn" data-type="short" data-delta="1" bindtap="stepTypeCount">+</text>
+                        </view>
+                    </view>
+                    <text class="type-sum-tip">已选合计 {{typeTotalPicked}} 题</text>
+                </block>
+            </view>
+
+            <view class="form-grid">
+                <view wx:if="{{!useCustomCounts}}" class="form-col">
+                    <text class="form-lbl">抽取题数</text>
+                    <input class="form-input" type="number" value="{{formCount}}" data-field="formCount" bindinput="onFormInput" />
+                </view>
+                <view class="form-col">
+                    <text class="form-lbl">答题限时(分)</text>
+                    <input class="form-input" type="number" value="{{formDuration}}" data-field="formDuration" bindinput="onFormInput" />
+                </view>
+                <view wx:if="{{formExamType === 'published'}}" class="form-col">
+                    <text class="form-lbl">切屏上限</text>
+                    <input class="form-input" type="number" value="{{formMaxSwitch}}" data-field="formMaxSwitch" bindinput="onFormInput" />
+                </view>
+            </view>
+
+            <block wx:if="{{formExamType === 'published'}}">
+                <view class="form-row">
+                    <text class="form-lbl">开放时间窗</text>
+                    <picker mode="selector" range="{{formWindowOptions}}" value="{{formWindowIdx}}" bindchange="onPickWindow">
+                        <view class="form-picker">{{formWindowOptions[formWindowIdx]}} ›</view>
+                    </picker>
+                </view>
+                <view class="form-switch-row">
+                    <text class="form-lbl-inline">拦截虚拟机/模拟器环境入场</text>
+                    <switch checked="{{formBlockEmulator}}" data-field="formBlockEmulator" bindchange="onSwitchChange" color="#2554A8" />
+                </view>
+                <view class="form-switch-row">
+                    <text class="form-lbl-inline">开启小窗/分屏与严格防作弊监考</text>
+                    <switch checked="{{formStrictAntiCheat}}" data-field="formStrictAntiCheat" bindchange="onSwitchChange" color="#2554A8" />
+                </view>
+            </block>
+            <button class="btn btn-primary btn-block mt24" bindtap="submitCreateExam" disabled="{{creating}}">{{creating ? '正在生成试卷…' : (formExamType === 'mock' ? '生成试卷并开始自测' : '立即发布考试')}}</button>
+        </view>
+    </view>
+
+    <!-- 考试二维码弹窗 -->
+    <view wx:if="{{showQrModal}}" class="modal-mask" bindtap="closeQrModal">
+        <view class="modal-dialog" catchtap="noop">
+            <view class="between">
+                <text class="title-md">考试分享二维码</text>
+                <text class="modal-close" bindtap="closeQrModal">✕</text>
+            </view>
+            <text class="qr-sub">{{qrData ? qrData.title : ''}}</text>
+            <view wx:if="{{qrLoading}}" class="qr-loading">
+                <view class="spinner"></view>
+            </view>
+            <block wx:elif="{{qrData}}">
+                <image class="qr-img" src="{{qrData.qrDataUrl}}" mode="aspectFit" show-menu-by-longpress="true" />
+                <view class="qr-pill" bindtap="copyExamCode">分享码：{{qrData.shareCode}}（点击复制）</view>
+                <view class="qr-btns">
+                    <button class="btn btn-outline qr-btn" open-type="share">转发微信好友</button>
+                    <button class="btn btn-primary qr-btn" bindtap="shareQrToWechat">发送二维码图片</button>
+                </view>
+            </block>
+        </view>
+    </view>
+</view>
+
+</block>

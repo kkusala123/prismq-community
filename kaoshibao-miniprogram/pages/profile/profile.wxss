@@ -1,0 +1,280 @@
+.user-card {
+    display: flex;
+    align-items: center;
+    padding: 32rpx 28rpx;
+    border-radius: 22rpx;
+    background: linear-gradient(135deg, #007AFF 0%, #0062CC 100%);
+    box-shadow: 0 10rpx 28rpx rgba(37, 84, 168, 0.22);
+}
+
+.avatar {
+    display: flex;
+    width: 100rpx;
+    height: 100rpx;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 24rpx;
+    background: rgba(255, 255, 255, 0.24);
+    color: #ffffff;
+    font-size: 42rpx;
+    font-weight: 700;
+}
+
+.user-main {
+    flex: 1;
+    min-width: 0;
+    margin-left: 22rpx;
+}
+
+.user-name {
+    color: #ffffff;
+    font-size: 34rpx;
+    font-weight: 800;
+}
+
+.user-role {
+    margin-left: 12rpx;
+    background: rgba(255, 255, 255, 0.24);
+    color: #ffffff;
+}
+
+.user-meta {
+    display: block;
+    margin-top: 8rpx;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 22rpx;
+}
+
+/* 统计 */
+.stat-card {
+    display: flex;
+    margin-top: 22rpx;
+    padding: 26rpx 0;
+}
+
+.stat-item {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    border-right: 2rpx solid #F0F2F5;
+}
+
+.stat-item:last-child {
+    border-right: none;
+}
+
+.stat-value {
+    color: #1C1C1E;
+    font-size: 34rpx;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-brand {
+    color: #007AFF;
+}
+
+.stat-success {
+    color: #12B76A;
+}
+
+.stat-danger {
+    color: #F56C6C;
+}
+
+.stat-label {
+    margin-top: 4rpx;
+    color: #64748B;
+    font-size: 20rpx;
+}
+
+/* 服务器 */
+.server-card {
+    margin-top: 22rpx;
+}
+
+.server-hint {
+    display: block;
+    margin-top: 14rpx;
+    color: #64748B;
+    font-size: 22rpx;
+    line-height: 1.65;
+}
+
+.server-input {
+    height: 84rpx;
+    margin-top: 20rpx;
+    padding: 0 22rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 12rpx;
+    background: #FAFBFC;
+    color: #1C1C1E;
+    font-size: 26rpx;
+}
+
+.server-actions {
+    display: flex;
+    margin-top: 18rpx;
+}
+
+.server-btn {
+    padding: 0 28rpx;
+    height: 72rpx;
+    line-height: 72rpx;
+    font-size: 25rpx;
+    font-weight: 600;
+    color: #007AFF;
+    background: #EAF3FF;
+    border-radius: 12rpx;
+}
+
+.server-btn-disabled {
+    color: #94A3B8;
+    background: #F4F6FB;
+}
+
+.server-btn-primary {
+    color: #ffffff;
+    background: #007AFF;
+}
+
+.server-save {
+    margin-left: 16rpx;
+}
+
+.connection-text {
+    display: block;
+    margin-top: 16rpx;
+    padding: 16rpx 20rpx;
+    border-radius: 10rpx;
+    background: #F8FAFC;
+    color: #475569;
+    font-size: 22rpx;
+    line-height: 1.6;
+}
+
+.demo-switch {
+    margin-top: 20rpx;
+    padding-top: 18rpx;
+    border-top: 2rpx solid #F0F2F5;
+}
+
+.demo-switch-text {
+    color: #007AFF;
+    font-size: 24rpx;
+    font-weight: 600;
+}
+
+/* 菜单 */
+.menu-card {
+    margin-top: 22rpx;
+    padding: 8rpx 26rpx;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    padding: 24rpx 0;
+    border-bottom: 2rpx solid #F7F8FA;
+}
+
+.menu-item:last-child {
+    border-bottom: none;
+}
+
+.menu-icon {
+    display: flex;
+    width: 60rpx;
+    height: 60rpx;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16rpx;
+    font-size: 26rpx;
+    font-weight: 700;
+}
+
+.icon-blue {
+    background: #EAF3FF;
+    color: #007AFF;
+}
+
+.icon-rose {
+    background: #FEF0F0;
+    color: #F56C6C;
+}
+
+.icon-green {
+    background: #ECFDF3;
+    color: #12B76A;
+}
+
+.menu-text {
+    flex: 1;
+    margin-left: 18rpx;
+    color: #1C1C1E;
+    font-size: 27rpx;
+    font-weight: 500;
+}
+
+.menu-arrow {
+    color: #CBD5E1;
+    font-size: 34rpx;
+    line-height: 1;
+}
+
+.logout-btn {
+    margin-top: 30rpx;
+    color: #F56C6C;
+}
+
+.parity-card {
+    margin-top: 22rpx;
+}
+
+.parity-title {
+    font-size: 28rpx;
+    font-weight: 700;
+    color: #1C1C1E;
+}
+
+.parity-desc {
+    display: block;
+    margin-top: 10rpx;
+    font-size: 22rpx;
+    color: #64748B;
+    line-height: 1.55;
+}
+
+.parity-list {
+    margin-top: 12rpx;
+    padding: 14rpx 16rpx;
+    border-radius: 12rpx;
+    background: #F8FAFC;
+}
+
+.parity-item {
+    display: block;
+    font-size: 21rpx;
+    color: #475569;
+    line-height: 1.7;
+}
+
+.mt16 {
+    margin-top: 16rpx;
+}
+
+.footer-tip {
+    padding: 36rpx 0 16rpx;
+    text-align: center;
+}
+
+.footer-sub {
+    display: block;
+    margin-top: 6rpx;
+}
+
+.ph {
+    color: #CBD5E1;
+}

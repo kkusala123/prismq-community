@@ -102,12 +102,21 @@
     background-color: rgba(17, 22, 34, 0.92);
   }
 
+  html.dark .bg-white\/90 {
+    background-color: rgba(17, 22, 34, 0.9);
+  }
+
   html.dark .bg-white\/85 {
     background-color: rgba(17, 22, 34, 0.88);
   }
 
   html.dark .bg-white\/80 {
     background-color: rgba(17, 22, 34, 0.82);
+  }
+
+  html.dark .bg-white\/70,
+  html.dark .bg-white\/60 {
+    background-color: rgba(17, 22, 34, 0.72);
   }
 
   html.dark .bg-white\/50 {
@@ -128,11 +137,19 @@
   html.dark .bg-\[\#F4F6F9\],
   html.dark .bg-\[\#F2F4F8\],
   html.dark .bg-\[\#EBEEF5\],
+  html.dark .bg-slate-50\/50,
+  html.dark .bg-slate-50\/60,
   html.dark .bg-slate-50\/70,
+  html.dark .bg-slate-50\/90,
   html.dark .bg-slate-100,
   html.dark .bg-slate-100\/80,
   html.dark .bg-slate-950\/5 {
     background-color: #161d2c;
+  }
+
+  html.dark .focus\:bg-white:focus,
+  html.dark .focus-within\:bg-white:focus-within {
+    background-color: #0f172a;
   }
 
   html.dark .bg-slate-200,
@@ -167,7 +184,8 @@
   html.dark .border-\[\#E4E7ED\],
   html.dark .border-\[\#F0F2F5\],
   html.dark .border-slate-100,
-  html.dark .border-slate-200 {
+  html.dark .border-slate-200,
+  html.dark .border-slate-200\/80 {
     border-color: #1e2636;
   }
 
@@ -243,12 +261,17 @@
   html.dark .text-brand-600,
   html.dark .text-\[\#198CFF\],
   html.dark .text-brand-700,
+  html.dark .text-brand-800,
   html.dark .text-brand-900 {
     color: #7aa7ff;
   }
 
   html.dark .bg-emerald-50,
   html.dark .bg-emerald-50\/40,
+  html.dark .bg-emerald-50\/50,
+  html.dark .bg-emerald-50\/60,
+  html.dark .bg-emerald-50\/70,
+  html.dark .bg-emerald-50\/80,
   html.dark .bg-emerald-50\/90 {
     background-color: rgba(16, 185, 129, 0.13);
   }
@@ -256,6 +279,7 @@
     background-color: rgba(16, 185, 129, 0.2);
   }
   html.dark .border-emerald-200,
+  html.dark .border-emerald-300,
   html.dark .border-emerald-400 {
     border-color: rgba(52, 211, 153, 0.38);
   }
@@ -269,6 +293,10 @@
 
   html.dark .bg-rose-50,
   html.dark .bg-rose-50\/40,
+  html.dark .bg-rose-50\/50,
+  html.dark .bg-rose-50\/60,
+  html.dark .bg-rose-50\/70,
+  html.dark .bg-rose-50\/80,
   html.dark .bg-rose-50\/90 {
     background-color: rgba(244, 63, 94, 0.13);
   }
@@ -283,13 +311,19 @@
   }
   html.dark .text-rose-600,
   html.dark .text-rose-700,
-  html.dark .text-rose-800 {
+  html.dark .text-rose-800,
+  html.dark .text-rose-900,
+  html.dark .text-rose-950 {
     color: #fda4af;
   }
 
   html.dark .bg-amber-50,
   html.dark .bg-amber-50\/30,
-  html.dark .bg-amber-50\/50 {
+  html.dark .bg-amber-50\/40,
+  html.dark .bg-amber-50\/50,
+  html.dark .bg-amber-50\/60,
+  html.dark .bg-amber-50\/70,
+  html.dark .bg-amber-50\/80 {
     background-color: rgba(245, 158, 11, 0.13);
   }
   html.dark .bg-amber-100,
@@ -299,12 +333,16 @@
   html.dark .bg-amber-200 {
     background-color: rgba(245, 158, 11, 0.32);
   }
-  html.dark .border-amber-200 {
-    border-color: rgba(251, 191, 36, 0.35);
+  html.dark .border-amber-200,
+  html.dark .border-amber-300,
+  html.dark .border-amber-400 {
+    border-color: rgba(251, 191, 36, 0.38);
   }
   html.dark .text-amber-600,
+  html.dark .text-amber-700,
   html.dark .text-amber-800,
-  html.dark .text-amber-900 {
+  html.dark .text-amber-900,
+  html.dark .group:hover .group-hover\:text-amber-700 {
     color: #fcd34d;
   }
 
@@ -325,6 +363,7 @@
   html.dark .text-indigo-600,
   html.dark .text-indigo-700,
   html.dark .text-indigo-800,
+  html.dark .text-indigo-900,
   html.dark .text-indigo-950 {
     color: #a5b4fc;
   }
@@ -349,11 +388,12 @@
   html.dark .bg-teal-50 {
     background-color: rgba(20, 184, 166, 0.14);
   }
+  html.dark .text-teal-600,
   html.dark .text-teal-700 {
     color: #5eead4;
   }
 
-  /* 8. 悬停态 */
+  /* 8. 悬停态与边框交互 */
   html.dark .hover\:bg-white:hover {
     background-color: #172033;
   }
@@ -371,7 +411,9 @@
   html.dark .hover\:bg-brand-50:hover,
   html.dark .hover\:bg-brand-50\/30:hover,
   html.dark .hover\:bg-brand-50\/40:hover,
-  html.dark .hover\:bg-brand-50\/70:hover {
+  html.dark .hover\:bg-brand-50\/50:hover,
+  html.dark .hover\:bg-brand-50\/70:hover,
+  html.dark .group:hover .group-hover\:bg-brand-50 {
     background-color: rgba(59, 106, 184, 0.22);
   }
 
@@ -393,9 +435,28 @@
   }
 
   html.dark .hover\:bg-rose-50:hover,
+  html.dark .hover\:bg-rose-50\/40:hover,
   html.dark .hover\:bg-rose-100:hover,
   html.dark .hover\:bg-rose-100\/70:hover {
     background-color: rgba(244, 63, 94, 0.2);
+  }
+
+  html.dark .hover\:border-brand-300:hover,
+  html.dark .hover\:border-brand-400:hover {
+    border-color: rgba(101, 142, 206, 0.55);
+  }
+  html.dark .hover\:border-amber-400:hover {
+    border-color: rgba(251, 191, 36, 0.55);
+  }
+  html.dark .hover\:border-rose-300:hover {
+    border-color: rgba(251, 113, 133, 0.5);
+  }
+  html.dark .hover\:border-slate-300:hover {
+    border-color: #3b4b68;
+  }
+
+  html.dark .hover\:text-brand-700:hover {
+    color: #93c5fd;
   }
 
   html.dark .hover\:text-\[\#303133\]:hover,

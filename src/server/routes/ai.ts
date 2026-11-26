@@ -577,17 +577,28 @@ export function createAiRouter(db: DbClient): Router {
           [questionId, req.user!.userId, req.user!.role]
         );
         if (rows.length === 0) {
-          res.status(404).json({ error: '题目不存在或无权访问' });
-          return;
+          if (req.body?.stem) {
+            questionData = {
+              type: (req.body.type || 'single') as QuestionType,
+              stem: String(req.body.stem),
+              options: Array.isArray(req.body.options) ? req.body.options : [],
+              answer: String(req.body.answer ?? ''),
+              explanation: String(req.body.explanation ?? ''),
+            };
+          } else {
+            res.status(404).json({ error: '题目不存在或无权访问' });
+            return;
+          }
+        } else {
+          questionData = {
+            type: rows[0].type,
+            stem: rows[0].stem,
+            options: rows[0].options || [],
+            answer: rows[0].answer,
+            explanation: rows[0].explanation || '',
+            bankOwnerId: rows[0].owner_id,
+          };
         }
-        questionData = {
-          type: rows[0].type,
-          stem: rows[0].stem,
-          options: rows[0].options || [],
-          answer: rows[0].answer,
-          explanation: rows[0].explanation || '',
-          bankOwnerId: rows[0].owner_id,
-        };
       } else if (req.body?.stem) {
         questionData = {
           type: (req.body.type || 'single') as QuestionType,

@@ -8,8 +8,16 @@
 *.tar.gz
 .DS_Store
 Thumbs.db
+# 小程序：IDE 本地设置与 WorkBuddy 宿主文件不入库
+project.private.config.json
+.wbapp_*.privacy.json
 android/.gradle/
 android/build/
 android/app/build/
 android/local.properties
+android/keystore.properties
+android/*.jks
+android/*.keystore
+android/app/*.jks
+android/app/*.keystore
 /releases/

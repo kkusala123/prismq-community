@@ -12,11 +12,12 @@ export interface AppConfig {
   corsOrigins: string[];
   trustProxy: boolean | number | string;
   disableRateLimit: boolean;
-  appUpdateEnabled: boolean;
   githubRepo: string;
   githubToken: string;
   appUpdateCacheDir: string;
   appUpdatePollIntervalMinutes: number;
+  wechatAppId: string;
+  wechatAppSecret: string;
 }
 
 function normalizeOriginEntry(raw: string): string {
@@ -63,11 +64,6 @@ function parseTrustProxy(rawEnv: string | undefined, nodeEnv: string): boolean |
 export function getAppConfig(): AppConfig {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const publicUrl = (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
-  const githubRepo = (process.env.GITHUB_REPO || '').trim();
-  const appUpdateEnabled =
-    process.env.APP_UPDATE_ENABLED !== undefined
-      ? process.env.APP_UPDATE_ENABLED === 'true'
-      : Boolean(githubRepo);
   return {
     port: Number(process.env.PORT || 3000),
     nodeEnv,
@@ -82,10 +78,12 @@ export function getAppConfig(): AppConfig {
     corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS, publicUrl),
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY, nodeEnv),
     disableRateLimit: process.env.DISABLE_RATE_LIMIT === 'true',
-    appUpdateEnabled,
-    githubRepo,
+    githubRepo: (process.env.GITHUB_REPO || '').trim(),
     githubToken: (process.env.GITHUB_TOKEN || '').trim(),
     appUpdateCacheDir: (process.env.APP_UPDATE_CACHE_DIR || './data/updates').trim(),
     appUpdatePollIntervalMinutes: Math.max(1, Number(process.env.APP_UPDATE_POLL_INTERVAL_MINUTES || 15) || 15),
+    // 微信小程序「一键登录」：AppID 与 AppSecret 只从服务端环境变量读取，绝不下发到客户端
+    wechatAppId: (process.env.WECHAT_APPID || '').trim(),
+    wechatAppSecret: (process.env.WECHAT_APPSECRET || '').trim(),
   };
 }

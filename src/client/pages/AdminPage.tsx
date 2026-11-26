@@ -20,6 +20,8 @@ import {
   Ban,
   CheckCircle2,
   Cpu,
+  Upload,
+  Smartphone,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -31,6 +33,8 @@ import type {
   AdminOverview,
   AdminUsageResponse,
   AdminUserItem,
+  AppUpdateReleaseInfo,
+  AppUpdateSyncResult,
   SystemPolicy,
 } from '../../shared/types.js';
 import {
@@ -111,6 +115,20 @@ export const AdminPage: React.FC = () => {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
 
+  // Android 安装包自托管分发
+  const [appUpdateInfo, setAppUpdateInfo] = useState<{
+    latest: AppUpdateReleaseInfo | null;
+    connectedClients: number;
+    lastCheckedAt: string | null;
+  } | null>(null);
+  const [apkFile, setApkFile] = useState<File | null>(null);
+  const [apkVersion, setApkVersion] = useState('');
+  const [apkVersionCode, setApkVersionCode] = useState('');
+  const [apkNotes, setApkNotes] = useState('');
+  const [apkForceUpdate, setApkForceUpdate] = useState(false);
+  const [uploadingApk, setUploadingApk] = useState(false);
+  const [scanningApk, setScanningApk] = useState(false);
+
   // 用户管理数据
   const [users, setUsers] = useState<AdminUserItem[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -165,10 +183,30 @@ export const AdminPage: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AdminAuditLogItem[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
 
+  const loadAppUpdateInfo = async () => {
+    try {
+      const res = await apiFetch<{
+        latest: AppUpdateReleaseInfo | null;
+        connectedClients: number;
+        lastCheckedAt: string | null;
+      }>('/api/app-update/admin/config');
+      setAppUpdateInfo({
+        latest: res.latest,
+        connectedClients: res.connectedClients,
+        lastCheckedAt: res.lastCheckedAt,
+      });
+    } catch {
+      // ignore optional widget errors
+    }
+  };
+
   const loadOverview = async () => {
     setLoadingOverview(true);
     try {
-      const res = await apiFetch<AdminOverview>('/api/admin/overview');
+      const [res] = await Promise.all([
+        apiFetch<AdminOverview>('/api/admin/overview'),
+        loadAppUpdateInfo(),
+      ]);
       setOverview(res);
     } catch (err) {
       setBanner({
@@ -177,6 +215,70 @@ export const AdminPage: React.FC = () => {
       });
     } finally {
       setLoadingOverview(false);
+    }
+  };
+
+  const handleUploadApk = async () => {
+    if (!apkFile) {
+      setBanner({ tone: 'error', message: '请先选择要上传的 .apk 安装包文件' });
+      return;
+    }
+    setUploadingApk(true);
+    try {
+      const form = new FormData();
+      form.append('file', apkFile);
+      if (apkVersion.trim()) form.append('versionName', apkVersion.trim());
+      if (apkVersionCode.trim()) form.append('versionCode', apkVersionCode.trim());
+      if (apkNotes.trim()) form.append('releaseNotes', apkNotes.trim());
+      form.append('forceUpdate', apkForceUpdate ? 'true' : 'false');
+
+      const res = await apiFetch<AppUpdateSyncResult>('/api/app-update/admin/upload', {
+        method: 'POST',
+        body: form,
+      });
+      await loadAppUpdateInfo();
+      setApkFile(null);
+      setBanner({
+        tone: 'success',
+        message: `已上传并发布 v${res.latest?.versionName || ''}（${
+          res.latest?.forceUpdate ? '强制更新' : '客户端可选更新'
+        }），已向 ${res.pushedClients} 个在线 Android 端推送更新提示。`,
+      });
+    } catch (err) {
+      setBanner({
+        tone: 'error',
+        message: err instanceof Error ? err.message : '上传 APK 安装包失败',
+      });
+    } finally {
+      setUploadingApk(false);
+    }
+  };
+
+  const handleScanLocalApk = async () => {
+    setScanningApk(true);
+    try {
+      const res = await apiFetch<AppUpdateSyncResult>('/api/app-update/admin/sync', {
+        method: 'POST',
+      });
+      await loadAppUpdateInfo();
+      if (!res.latest) {
+        setBanner({
+          tone: 'info',
+          message: '服务器 updates 目录暂未检测到 .apk 安装包，可先在下方上传或放到服务器目录中。',
+        });
+      } else {
+        setBanner({
+          tone: 'success',
+          message: `已扫描服务器目录并发布 v${res.latest.versionName}，已向 ${res.pushedClients} 个在线 Android 端推送更新。`,
+        });
+      }
+    } catch (err) {
+      setBanner({
+        tone: 'error',
+        message: err instanceof Error ? err.message : '扫描服务器安装包失败',
+      });
+    } finally {
+      setScanningApk(false);
     }
   };
 
@@ -744,6 +846,125 @@ export const AdminPage: React.FC = () => {
                   </div>
                 </Card>
               </div>
+
+              <Card>
+                <CardHeader
+                  title="Android 安装包自托管分发与推送"
+                  description="安装包直接存放在本服务器并推送更新通知（不依赖 GitHub），客户端弹窗提供「立即更新」与「稍后再说」可选更新。"
+                  action={
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={scanningApk}
+                      icon={<RefreshCw className="h-3.5 w-3.5" />}
+                      onClick={() => void handleScanLocalApk()}
+                    >
+                      扫描服务器目录并推送
+                    </Button>
+                  }
+                />
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-2.5 rounded-lg border border-slate-200 bg-slate-50/70 p-3.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+                        <Smartphone className="h-3.5 w-3.5 text-brand-600" />
+                        当前服务器在线分发版本
+                      </span>
+                      <Badge tone="brand">
+                        在线连接 {appUpdateInfo?.connectedClients ?? 0} 台
+                      </Badge>
+                    </div>
+                    {appUpdateInfo?.latest ? (
+                      <div className="space-y-1 text-slate-600">
+                        <div>
+                          版本号：<span className="font-bold text-slate-900">v{appUpdateInfo.latest.versionName}</span>
+                          <span className="ml-2 text-slate-500">(versionCode: {appUpdateInfo.latest.versionCode})</span>
+                          <Badge tone={appUpdateInfo.latest.forceUpdate ? 'danger' : 'success'} className="ml-2">
+                            {appUpdateInfo.latest.forceUpdate ? '强制更新' : '客户端可选'}
+                          </Badge>
+                        </div>
+                        <div>文件名：{appUpdateInfo.latest.fileName}（{(appUpdateInfo.latest.fileSize / 1024 / 1024).toFixed(2)} MB）</div>
+                        <div className="truncate font-mono text-[11px] text-slate-500">
+                          SHA-256: {appUpdateInfo.latest.sha256}
+                        </div>
+                        {appUpdateInfo.latest.releaseNotes && (
+                          <div className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-slate-700">
+                            {appUpdateInfo.latest.releaseNotes}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-slate-500">
+                        服务器尚未发布任何 APK，可在右侧直接上传 `.apk` 或将安装包放入服务器 `./data/updates/` 目录。
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2.5 rounded-lg border border-slate-200 p-3.5 text-xs">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={LABEL_CLS}>版本号（留空按文件名识别）</label>
+                        <input
+                          type="text"
+                          value={apkVersion}
+                          onChange={(e) => setApkVersion(e.target.value)}
+                          placeholder="如 2.4.4"
+                          className={INPUT_CLS}
+                        />
+                      </div>
+                      <div>
+                        <label className={LABEL_CLS}>版本码 versionCode（可选）</label>
+                        <input
+                          type="number"
+                          value={apkVersionCode}
+                          onChange={(e) => setApkVersionCode(e.target.value)}
+                          placeholder="如 12"
+                          className={INPUT_CLS}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={LABEL_CLS}>更新说明（展示在客户端更新弹窗）</label>
+                      <input
+                        type="text"
+                        value={apkNotes}
+                        onChange={(e) => setApkNotes(e.target.value)}
+                        placeholder="如：支持服务器直接推送更新、一键重置刷题进度、优化性能"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={apkForceUpdate}
+                          onChange={(e) => setApkForceUpdate(e.target.checked)}
+                        />
+                        强制更新（不勾选则用户可点「稍后再说」）
+                      </label>
+                      <input
+                        type="file"
+                        accept=".apk,application/vnd.android.package-archive"
+                        onChange={(e) => setApkFile(e.target.files?.[0] ?? null)}
+                        className="max-w-full text-[11px] text-slate-600"
+                      />
+                    </div>
+
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      className="w-full"
+                      loading={uploadingApk}
+                      icon={<Upload className="h-3.5 w-3.5" />}
+                      onClick={() => void handleUploadApk()}
+                    >
+                      {apkFile ? `上传「${apkFile.name}」并推送给客户端` : '上传 APK 安装包并推送给客户端'}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
             </>
           ) : null}
         </div>

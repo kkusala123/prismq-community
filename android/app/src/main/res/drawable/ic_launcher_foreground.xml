@@ -4,7 +4,31 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- 三束折射光谱线（安全区 26..82 内居中排版） -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,28L24,42L54,56L84,42L54,28ZM34,50.5V65.5C34,71.2 42.9,76 54,76C65.1,76 74,71.2 74,65.5V50.5L54,60L34,50.5ZM78,46V64H83V44L78,46Z" />
+        android:pathData="M56.5,48.5L79.5,43.5"
+        android:strokeWidth="3.8"
+        android:strokeColor="#38BDF8"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M59.5,54.8L81.5,54.8"
+        android:strokeWidth="3.8"
+        android:strokeColor="#34D399"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M62.5,61.0L79.5,66.0"
+        android:strokeWidth="3.8"
+        android:strokeColor="#FBBF24"
+        android:strokeLineCap="round" />
+
+    <!-- 棱镜三折面几何体 -->
+    <path
+        android:fillColor="#F8FFFFFF"
+        android:pathData="M51,31L31,74L49,59.5Z" />
+    <path
+        android:fillColor="#EB93C5FD"
+        android:pathData="M51,31L67,74L49,59.5Z" />
+    <path
+        android:fillColor="#F53B82F6"
+        android:pathData="M31,74L67,74L49,59.5Z" />
 </vector>

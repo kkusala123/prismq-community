@@ -1,0 +1,137 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap dash-page">
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在加载学习概览</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="retry">重新加载</button>
+    </view>
+
+    <block wx:else>
+        <!-- 1. 极简问候语（对齐 Android App DashboardScreen） -->
+        <text class="greet-line ellipsis">欢迎回来，{{user.nickname || user.username || '同学'}}</text>
+
+        <!-- 2. Hero 主焦点卡片（当前题库 + 一键续练） -->
+        <view wx:if="{{recentTop}}" class="card hero-card">
+            <view class="between">
+                <text class="tag tag-brand">{{recentTop.category || '当前题库'}}</text>
+                <text class="hero-pct num">{{recentTop.pct}}%</text>
+            </view>
+
+            <text class="hero-title" data-id="{{recentTop.id}}" bindtap="openBank">{{recentTop.title}}</text>
+            <text class="hero-sub">已练 {{recentTop.practicedCount}} / {{recentTop.questionCount}} 题</text>
+
+            <view class="progress-track hero-progress">
+                <view class="progress-fill" style="width: {{recentTop.pct}}%"></view>
+            </view>
+
+            <button class="btn btn-primary btn-block hero-cta" data-id="{{recentTop.id}}" bindtap="startPractice">
+                继续刷题 · 第 {{recentTop.nextIndex}} 题
+            </button>
+
+            <view class="hero-sub-actions">
+                <button class="btn btn-outline hero-sub-btn" data-id="{{recentTop.id}}" bindtap="startRecite">背题模式</button>
+                <button class="btn btn-outline hero-sub-btn" bindtap="goBanks">题库中心</button>
+            </view>
+        </view>
+
+        <view wx:else class="card empty-card">
+            <text class="state-icon">○</text>
+            <text class="state-title">开始你的第一次刷题</text>
+            <text class="state-desc">前往题库中心挑一套题库，或让管理员通过网页端导入新题库</text>
+            <button class="btn btn-primary btn-sm mt24" bindtap="goBanks">前往题库中心</button>
+        </view>
+
+        <!-- 3. Apple 极简 3 项统计条 -->
+        <view class="card stat-strip">
+            <view class="stat-col" bindtap="goBanks">
+                <text class="stat-num num">{{stats.totalAnswered}}</text>
+                <text class="stat-lbl">累计作答</text>
+            </view>
+            <view class="stat-sep"></view>
+            <view class="stat-col">
+                <text class="stat-num stat-num-brand num">{{stats.accuracy}}%</text>
+                <text class="stat-lbl">正确率</text>
+            </view>
+            <view class="stat-sep"></view>
+            <view class="stat-col" bindtap="goMistakes">
+                <text class="stat-num stat-num-danger num">{{stats.mistakeCount}}</text>
+                <text class="stat-lbl">待消错题</text>
+            </view>
+        </view>
+
+        <!-- 4. iOS Grouped 分组列表：最近题库（第 2 个起） -->
+        <view wx:if="{{recentOthers.length > 0}}" class="section-block">
+            <view class="section-head">
+                <text class="section-title">最近题库</text>
+                <text class="section-more" bindtap="goBanks">全部题库</text>
+            </view>
+            <view class="card grouped-card">
+                <view
+                    class="grouped-row"
+                    wx:for="{{recentOthers}}"
+                    wx:key="id"
+                    data-id="{{item.id}}"
+                    bindtap="openBank"
+                >
+                    <view class="grouped-main">
+                        <text class="grouped-title ellipsis">{{item.title}}</text>
+                        <text class="grouped-meta num">已练 {{item.practicedCount}}/{{item.questionCount}} 题 ({{item.pct}}%) · 断点第 {{item.nextIndex}} 题</text>
+                    </view>
+                    <view class="play-circle" data-id="{{item.id}}" catchtap="startPractice">▶</view>
+                </view>
+            </view>
+        </view>
+
+        <!-- 5. 紧凑单行：考场分享码直达 -->
+        <view class="card join-card">
+            <view class="join-row">
+                <input
+                    class="join-input"
+                    value="{{joinCode}}"
+                    bindinput="onJoinInput"
+                    placeholder="输入 8 位考场分享码"
+                    placeholder-class="ph"
+                    maxlength="12"
+                />
+                <button class="btn btn-primary join-btn" bindtap="joinExam">进入</button>
+            </view>
+        </view>
+
+        <!-- 6. 公共题库（仅存在数据时展示） -->
+        <view wx:if="{{publicBanks.length > 0}}" class="section-block">
+            <view class="section-head">
+                <text class="section-title">题库广场</text>
+                <text class="section-more" bindtap="goBanks">查看更多</text>
+            </view>
+            <view class="card grouped-card">
+                <view
+                    class="grouped-row"
+                    wx:for="{{publicBanks}}"
+                    wx:key="id"
+                    data-id="{{item.id}}"
+                    bindtap="openBank"
+                >
+                    <view class="grouped-main">
+                        <view class="row">
+                            <text class="tag tag-brand">{{item.category}}</text>
+                            <text class="public-title ellipsis">{{item.title}}</text>
+                        </view>
+                        <text class="grouped-meta">{{item.questionCount}} 题 · 克隆 {{item.cloneCount}} 次 · {{item.ownerName}}</text>
+                    </view>
+                    <button class="btn btn-outline btn-sm public-btn" data-id="{{item.id}}" catchtap="startPractice">刷题</button>
+                </view>
+            </view>
+        </view>
+    </block>
+</view>
+</block>

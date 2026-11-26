@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "考情统计与监考",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "login-panel": "../../components/login-panel/login-panel"
+  }
+}

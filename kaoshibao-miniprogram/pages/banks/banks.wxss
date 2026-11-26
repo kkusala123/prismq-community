@@ -1,0 +1,144 @@
+.search-bar {
+    display: flex;
+    height: 84rpx;
+    align-items: center;
+    padding: 0 24rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 14rpx;
+    background: #ffffff;
+}
+
+.search-icon {
+    color: #64748B;
+    font-size: 34rpx;
+    line-height: 1;
+}
+
+.search-input {
+    flex: 1;
+    height: 100%;
+    padding: 0 14rpx;
+    color: #1C1C1E;
+    font-size: 27rpx;
+}
+
+.search-clear {
+    padding: 6rpx 10rpx;
+    color: #CBD5E1;
+    font-size: 26rpx;
+}
+
+.cat-scroll {
+    display: flex;
+    margin: 22rpx -28rpx 0;
+    padding: 0 28rpx;
+    white-space: nowrap;
+}
+
+.cat-chip {
+    display: inline-flex;
+    height: 64rpx;
+    align-items: center;
+    margin-right: 16rpx;
+    padding: 0 26rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 999rpx;
+    background: #ffffff;
+    color: #475569;
+    font-size: 25rpx;
+    font-weight: 500;
+}
+
+.cat-active {
+    border-color: #007AFF;
+    background: #EAF3FF;
+    color: #007AFF;
+    font-weight: 700;
+}
+
+.list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 30rpx 4rpx 16rpx;
+}
+
+.bank-card {
+    margin-bottom: 20rpx;
+}
+
+.bank-top {
+    display: flex;
+    flex-direction: column;
+}
+
+.bank-head {
+    display: flex;
+    align-items: center;
+}
+
+.bank-name {
+    margin-top: 14rpx;
+    color: #1C1C1E;
+    font-size: 31rpx;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.bank-desc {
+    margin-top: 8rpx;
+    color: #64748B;
+    font-size: 23rpx;
+    line-height: 1.5;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.bank-stats {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 16rpx;
+}
+
+.stat-item {
+    margin-right: 22rpx;
+    color: #475569;
+    font-size: 22rpx;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-danger {
+    color: #F56C6C;
+}
+
+.bank-progress {
+    margin-top: 16rpx;
+    height: 8rpx;
+}
+
+.bank-pct {
+    margin-top: 8rpx;
+    color: #64748B;
+    font-size: 21rpx;
+}
+
+.bank-actions {
+    display: flex;
+    margin-top: 22rpx;
+    padding-top: 20rpx;
+    border-top: 2rpx solid #F0F2F5;
+}
+
+.bank-actions .btn {
+    flex: 1;
+}
+
+.bank-actions .btn + .btn {
+    margin-left: 16rpx;
+}
+
+.ph {
+    color: #CBD5E1;
+}

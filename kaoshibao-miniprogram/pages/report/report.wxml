@@ -1,0 +1,177 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap report-wrap">
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在生成成绩报告</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">无法查看成绩</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="goExams">返回考试列表</button>
+    </view>
+
+    <block wx:else>
+        <!-- 成绩卡 -->
+        <view class="score-card {{summary.isPassed ? 'card-pass' : 'card-fail'}}">
+            <text class="score-exam">{{summary.examTitle}}</text>
+
+            <view class="score-main">
+                <text class="score-number">{{scoreText}}</text>
+                <text class="score-total">/ {{summary.totalScore}}</text>
+            </view>
+
+            <view class="pass-badge">{{summary.isPassed ? '恭喜通过' : '未达及格线'}}</view>
+            <text class="score-line">及格线 {{summary.passScore}} 分</text>
+        </view>
+
+        <!-- 指标 -->
+        <view class="card metric-card">
+            <view class="metric-item">
+                <text class="metric-value">{{summary.accuracy}}%</text>
+                <text class="metric-label">正确率</text>
+            </view>
+            <view class="metric-item">
+                <text class="metric-value">{{summary.correctCount}}/{{summary.totalQuestions}}</text>
+                <text class="metric-label">答对题数</text>
+            </view>
+            <view class="metric-item">
+                <text class="metric-value">{{summary.durationText}}</text>
+                <text class="metric-label">用时</text>
+            </view>
+            <view class="metric-item">
+                <text class="metric-value">{{summary.tabSwitchCount}}</text>
+                <text class="metric-label">切屏次数</text>
+            </view>
+        </view>
+
+        <view wx:if="{{summary.terminatedByCreator}}" class="card mt24" style="background:#FEF2F2;border:2rpx solid #FECACA;padding:20rpx 24rpx;">
+            <text style="color:#DC2626;font-size:24rpx;font-weight:700;">⚠ 本场考试已被组织者主动终结，系统已根据你最近的答题进度自动结算提交。</text>
+        </view>
+
+        <view wx:if="{{summary.riskLabels && summary.riskLabels.length > 0}}" class="card mt24" style="padding:20rpx 24rpx;">
+            <text style="display:block;color:#64748B;font-size:22rpx;margin-bottom:10rpx;">监考风控标记：</text>
+            <view style="display:flex;flex-wrap:wrap;gap:10rpx;">
+                <text wx:for="{{summary.riskLabels}}" wx:key="*this" style="padding:4rpx 12rpx;border-radius:8rpx;background:#FFF7ED;color:#C2410C;font-size:21rpx;font-weight:600;">{{item}}</text>
+            </view>
+        </view>
+
+        <!-- 逐题解析 -->
+        <view class="section-head">
+            <text class="title-md">答题解析</text>
+            <text class="sub">共 {{items.length}} 题</text>
+        </view>
+
+        <view wx:if="{{items.length === 0}}" class="card empty-card">
+            <text class="state-desc">该场考试的逐题解析暂时不可用</text>
+        </view>
+
+        <view class="card item-card" wx:for="{{items}}" wx:key="no">
+            <view class="item-head">
+                <text class="item-no">{{item.no}}</text>
+                <text class="tag tag-gray">{{item.typeLabel}}</text>
+                <view class="flex1"></view>
+                <text class="item-verdict {{item.isCorrect ? 'verdict-right' : 'verdict-wrong'}}">
+                    {{item.isCorrect ? '正确 +' + item.earned : '错误 +0'}}
+                </text>
+            </view>
+
+            <view class="rich-wrap item-stem">
+                <block wx:for="{{item.stemSegments}}" wx:for-item="seg" wx:key="index">
+                    <text wx:if="{{seg.type === 'text'}}" class="rich-text" user-select="true">{{seg.content}}</text>
+                    <view wx:else class="code-card">
+                        <view class="code-card-head">
+                            <text class="code-lang">{{seg.lang}}</text>
+                            <text class="code-copy" data-code="{{seg.content}}" bindtap="copyCodeBlock">复制</text>
+                        </view>
+                        <scroll-view class="code-scroll" scroll-x="true">
+                            <text class="code-pre" user-select="true">{{seg.content}}</text>
+                        </scroll-view>
+                    </view>
+                </block>
+            </view>
+
+            <view class="item-answers">
+                <view class="answer-line">
+                    <text class="answer-label">你的作答</text>
+                    <text class="answer-value {{item.isCorrect ? 'value-right' : 'value-wrong'}}">{{item.userAnswer}}</text>
+                </view>
+                <view class="answer-line">
+                    <text class="answer-label">正确答案</text>
+                    <text class="answer-value value-right">{{item.correctAnswer}}</text>
+                </view>
+            </view>
+
+            <view class="explain-block" wx:if="{{item.explanation}}">
+                <text class="explain-label">解析</text>
+                <view class="rich-wrap explain-text">
+                    <block wx:for="{{item.explainSegments}}" wx:for-item="seg" wx:key="index">
+                        <text wx:if="{{seg.type === 'text'}}" class="rich-text" user-select="true">{{seg.content}}</text>
+                        <view wx:else class="code-card">
+                            <view class="code-card-head">
+                                <text class="code-lang">{{seg.lang}}</text>
+                                <text class="code-copy" data-code="{{seg.content}}" bindtap="copyCodeBlock">复制</text>
+                            </view>
+                            <scroll-view class="code-scroll" scroll-x="true">
+                                <text class="code-pre" user-select="true">{{seg.content}}</text>
+                            </scroll-view>
+                        </view>
+                    </block>
+                </view>
+            </view>
+
+            <view class="ai-actions">
+                <button
+                    class="btn btn-outline btn-sm ai-btn"
+                    loading="{{item.aiLoading}}"
+                    disabled="{{item.aiLoading}}"
+                    data-index="{{index}}"
+                    bindtap="askItemAiExplain"
+                >{{item.aiLoading ? 'AI 解析生成中…' : (item.aiExplain ? '重新 AI 一键解析' : 'AI 一键解析')}}</button>
+            </view>
+
+            <view wx:if="{{item.aiError}}" class="ai-error">{{item.aiError}}</view>
+
+            <view wx:if="{{item.aiExplain}}" class="ai-box">
+                <text class="ai-box-head">AI 深度解析</text>
+                <view wx:if="{{item.aiExplain.keyPoint}}" class="ai-field">
+                    <text class="ai-field-lbl">核心考点：</text>
+                    <text class="ai-field-val" user-select="true">{{item.aiExplain.keyPoint}}</text>
+                </view>
+                <view wx:if="{{item.aiExplain.analysis}}" class="ai-field">
+                    <text class="ai-field-lbl">深度解析：</text>
+                    <view class="rich-wrap explain-text">
+                        <block wx:for="{{item.aiAnalysisSegments}}" wx:for-item="aiseg" wx:key="index">
+                            <text wx:if="{{aiseg.type === 'text'}}" class="rich-text" user-select="true">{{aiseg.content}}</text>
+                            <view wx:else class="code-card">
+                                <view class="code-card-head">
+                                    <text class="code-lang">{{aiseg.lang}}</text>
+                                    <text class="code-copy" data-code="{{aiseg.content}}" bindtap="copyCodeBlock">复制</text>
+                                </view>
+                                <scroll-view class="code-scroll" scroll-x="true">
+                                    <text class="code-pre" user-select="true">{{aiseg.content}}</text>
+                                </scroll-view>
+                            </view>
+                        </block>
+                    </view>
+                </view>
+                <view wx:if="{{item.aiExplain.mnemonic}}" class="ai-mnemonic">
+                    <text class="ai-field-lbl">记忆口诀：</text>
+                    <text class="ai-field-val" user-select="true">{{item.aiExplain.mnemonic}}</text>
+                </view>
+            </view>
+        </view>
+
+        <view class="action-row">
+            <button class="btn btn-outline" bindtap="goExams">考试列表</button>
+            <button class="btn btn-primary" bindtap="goHome">回到首页</button>
+        </view>
+    </block>
+</view>
+
+</block>

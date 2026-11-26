@@ -1,0 +1,89 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap">
+    <view class="search-bar">
+        <text class="search-icon">⌕</text>
+        <input class="search-input" value="{{keyword}}" bindinput="onSearchInput" placeholder="搜索题库名称或关键词" placeholder-class="ph" confirm-type="search" />
+        <text wx:if="{{keyword}}" class="search-clear" bindtap="clearSearch">✕</text>
+    </view>
+
+    <view class="card" style="margin-top:20rpx" bindtap="goShareJoin">
+        <view class="row">
+            <text class="tag tag-brand">#</text>
+            <text class="flex1" style="margin-left:16rpx">通过分享码加入题库</text>
+            <text style="color:#CBD5E1">›</text>
+        </view>
+    </view>
+
+    <scroll-view class="cat-scroll" scroll-x enable-flex>
+        <view
+            class="cat-chip {{activeCategory === item ? 'cat-active' : ''}}"
+            wx:for="{{categories}}"
+            wx:key="*this"
+            data-cat="{{item}}"
+            bindtap="selectCategory"
+        >{{item}}</view>
+    </scroll-view>
+
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在加载题库</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="retry">重新加载</button>
+    </view>
+
+    <view wx:elif="{{banks.length === 0}}" class="state">
+        <text class="state-icon">○</text>
+        <text class="state-title">没有匹配的题库</text>
+        <text class="state-desc">换个分类或关键词试试</text>
+    </view>
+
+    <block wx:else>
+        <view class="list-head">
+            <text class="sub">共 {{banks.length}} 个题库</text>
+            <text wx:if="{{isDemo}}" class="tag tag-warning">演示数据</text>
+        </view>
+
+        <view class="card bank-card" wx:for="{{banks}}" wx:key="id">
+            <view class="bank-top" data-id="{{item.id}}" bindtap="openBank">
+                <view class="bank-head">
+                    <text class="tag tag-brand">{{item.category}}</text>
+                    <text wx:if="{{item.visibility === 'public'}}" class="tag tag-gray">共享</text>
+                </view>
+                <text class="bank-name">{{item.title}}</text>
+                <text class="bank-desc">{{item.description}}</text>
+
+                <view class="bank-stats">
+                    <text class="stat-item">{{item.questionCount}} 题</text>
+                    <text class="stat-item">{{item.chapterCount}} 章节</text>
+                    <text class="stat-item">{{item.practicedCount}} 已练</text>
+                    <text wx:if="{{item.mistakeCount > 0}}" class="stat-item stat-danger">{{item.mistakeCount}} 错题</text>
+                </view>
+
+                <view class="progress-track bank-progress">
+                    <view class="progress-fill" style="width: {{item.pct}}%"></view>
+                </view>
+                <text class="bank-pct">练习进度 {{item.pct}}%</text>
+            </view>
+
+            <view class="bank-actions">
+                <button class="btn btn-outline btn-sm" data-id="{{item.id}}" catchtap="openBank">查看详情</button>
+                <button class="btn btn-primary btn-sm" data-id="{{item.id}}" catchtap="quickPractice">开始刷题</button>
+            </view>
+        </view>
+    </block>
+
+    <view style="padding:20rpx 12rpx 8rpx;text-align:center;">
+        <text style="font-size:21rpx;color:#94A3B8;line-height:1.5;">提示：新建题库、批量/AI 导题及全局搜题请使用网页端（prismq.example.com）或 App 端，数据实时同步。</text>
+    </view>
+</view>
+
+</block>

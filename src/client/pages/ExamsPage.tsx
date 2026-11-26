@@ -11,6 +11,10 @@ import {
   Lock,
   Unlock,
   Sparkles,
+  QrCode,
+  OctagonX,
+  Download,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   QUESTION_TYPE_LABELS,
@@ -46,6 +50,7 @@ const STRATEGY_BADGE_MAP: Record<ExamAssemblyStrategy, string> = {
 };
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { SelfTestModal } from '../components/SelfTestModal';
 import {
   Alert,
   Badge,
@@ -100,10 +105,28 @@ export const ExamsPage: React.FC = () => {
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [allowGuest, setAllowGuest] = useState(true);
   const [accessPassword, setAccessPassword] = useState('');
+  const [startsAtInput, setStartsAtInput] = useState('');
+  const [endsAtInput, setEndsAtInput] = useState('');
+  const [blockEmulator, setBlockEmulator] = useState(false);
+  const [strictAntiCheat, setStrictAntiCheat] = useState(true);
+  const [autoSubmitOnCheat, setAutoSubmitOnCheat] = useState(true);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
+  const [qrModalExam, setQrModalExam] = useState<{
+    examId: string;
+    title: string;
+    shareCode: string;
+    shareUrl: string;
+    qrDataUrl: string;
+  } | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrCopied, setQrCopied] = useState(false);
+  const [terminatingId, setTerminatingId] = useState('');
+
   const [joinInput, setJoinInput] = useState('');
+  const initialSelfTestBank = searchParams.get('selfTestFromBank') || '';
+  const [showSelfTest, setShowSelfTest] = useState(Boolean(initialSelfTestBank));
 
   const loadAll = async () => {
     setLoading(true);
@@ -216,10 +239,17 @@ export const ExamsPage: React.FC = () => {
           maxAttempts,
           allowGuest,
           accessPassword: accessPassword.trim(),
+          ...(startsAtInput ? { startsAt: new Date(startsAtInput).toISOString() } : {}),
+          ...(endsAtInput ? { endsAt: new Date(endsAtInput).toISOString() } : {}),
+          blockEmulator,
+          strictAntiCheat,
+          autoSubmitOnCheat,
         },
       });
       setShowCreate(false);
       setTitle('');
+      setStartsAtInput('');
+      setEndsAtInput('');
       if (examType === 'mock') {
         navigate(`/exam/join/${res.shareCode}`);
       } else {
@@ -236,6 +266,48 @@ export const ExamsPage: React.FC = () => {
     const next = exam.status === 'active' ? 'closed' : 'active';
     await apiFetch(`/api/exams/${exam.id}/status`, { method: 'PUT', json: { status: next } });
     void loadAll();
+  };
+
+  const handleTerminateExam = async (exam: ExamSummary) => {
+    if (
+      !window.confirm(
+        `确认立即终结「${exam.title}」吗？\n终结后考场将立即关闭，所有正在作答中的考生将按当前最新草稿自动结算成绩并交卷！`
+      )
+    ) {
+      return;
+    }
+    setTerminatingId(exam.id);
+    try {
+      const res = await apiFetch<{ terminatedCount: number }>(
+        `/api/exams/${exam.id}/terminate`,
+        { method: 'POST' }
+      );
+      window.alert(
+        res.terminatedCount > 0
+          ? `考试已终结，已为 ${res.terminatedCount} 名在考考生自动结算交卷。`
+          : '考试已终结并关闭入口。'
+      );
+      void loadAll();
+    } finally {
+      setTerminatingId('');
+    }
+  };
+
+  const handleOpenQrModal = async (exam: ExamSummary) => {
+    setQrLoading(true);
+    setQrCopied(false);
+    try {
+      const res = await apiFetch<{
+        examId: string;
+        title: string;
+        shareCode: string;
+        shareUrl: string;
+        qrDataUrl: string;
+      }>(`/api/exams/${exam.id}/qrcode`);
+      setQrModalExam(res);
+    } finally {
+      setQrLoading(false);
+    }
   };
 
   const handleDeleteExam = async (exam: ExamSummary) => {
@@ -269,6 +341,13 @@ export const ExamsPage: React.FC = () => {
                 进入考场
               </Button>
             </form>
+            <Button
+              variant="secondary"
+              icon={<Sparkles className="h-3.5 w-3.5 text-amber-600" />}
+              onClick={() => setShowSelfTest(true)}
+            >
+              自测组卷
+            </Button>
             <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowCreate(true)}>
               组卷 / 发布考试
             </Button>
@@ -329,6 +408,18 @@ export const ExamsPage: React.FC = () => {
                       <span>
                         总分 {ex.totalScore} / 及格 {ex.passScore}
                       </span>
+                      {ex.blockEmulator && (
+                        <Badge tone="danger">
+                          <ShieldCheck className="h-3 w-3" /> 禁虚拟机
+                        </Badge>
+                      )}
+                      {(ex.startsAt || ex.endsAt) && (
+                        <span className="text-[11px] text-slate-500">
+                          {ex.startsAt ? `开考 ${new Date(ex.startsAt).toLocaleString()}` : ''}
+                          {ex.startsAt && ex.endsAt ? ' · ' : ''}
+                          {ex.endsAt ? `截止 ${new Date(ex.endsAt).toLocaleString()}` : ''}
+                        </span>
+                      )}
                       {ex.assemblyMeta?.actualDistribution && (
                         <span>
                           难度 易{ex.assemblyMeta.actualDistribution.easy}/中
@@ -340,9 +431,15 @@ export const ExamsPage: React.FC = () => {
                             : ''}
                         </span>
                       )}
+                      {(ex.inProgressCount ?? 0) > 0 && (
+                        <span className="font-semibold text-amber-700">
+                          在考 {ex.inProgressCount} 人
+                        </span>
+                      )}
                       {ex.submissionCount !== undefined && ex.submissionCount > 0 && (
                         <span className="font-semibold text-slate-800">
-                          已交卷 {ex.submissionCount} 人 · 均分 {ex.avgScore} · 及格率 {ex.passRate}%
+                          已交卷 {ex.submissionCount} 人 · 均分 {ex.avgScore} · 正确率{' '}
+                          {ex.avgAccuracy ?? 0}% · 及格率 {ex.passRate}%
                         </span>
                       )}
                     </div>
@@ -371,6 +468,15 @@ export const ExamsPage: React.FC = () => {
                       >
                         {copiedCode === ex.shareCode ? '已复制链接' : '分享链接'}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={qrLoading}
+                        icon={<QrCode className="h-3 w-3 text-brand-600" />}
+                        onClick={() => void handleOpenQrModal(ex)}
+                      >
+                        二维码
+                      </Button>
                       {isCreator && (
                         <Button
                           size="sm"
@@ -378,7 +484,18 @@ export const ExamsPage: React.FC = () => {
                           icon={<BarChart3 className="h-3 w-3 text-indigo-600" />}
                           onClick={() => navigate(`/exams/${ex.id}/analytics`)}
                         >
-                          排行与统计
+                          成绩与考情
+                        </Button>
+                      )}
+                      {isCreator && ex.status === 'active' && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          loading={terminatingId === ex.id}
+                          icon={<OctagonX className="h-3 w-3" />}
+                          onClick={() => void handleTerminateExam(ex)}
+                        >
+                          终结考试
                         </Button>
                       )}
                     </div>
@@ -846,32 +963,79 @@ export const ExamsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-4 text-xs text-slate-700">
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={shuffleQuestions}
-                onChange={(e) => setShuffleQuestions(e.target.checked)}
-              />
-              随机打乱试题顺序
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={shuffleOptions}
-                onChange={(e) => setShuffleOptions(e.target.checked)}
-              />
-              随机打乱选项顺序
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={allowGuest}
-                onChange={(e) => setAllowGuest(e.target.checked)}
-              />
-              允许免登录填写姓名/工号参试
-            </label>
-          </div>
+              <div className="flex flex-wrap gap-4 text-xs text-slate-700">
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={shuffleQuestions}
+                    onChange={(e) => setShuffleQuestions(e.target.checked)}
+                  />
+                  随机打乱试题顺序
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={shuffleOptions}
+                    onChange={(e) => setShuffleOptions(e.target.checked)}
+                  />
+                  随机打乱选项顺序
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={allowGuest}
+                    onChange={(e) => setAllowGuest(e.target.checked)}
+                  />
+                  允许免登录填写姓名/工号参试
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 sm:grid-cols-2">
+                <div>
+                  <label className={LABEL_CLS}>开考时间（可选，留空立即开考）</label>
+                  <input
+                    type="datetime-local"
+                    value={startsAtInput}
+                    onChange={(e) => setStartsAtInput(e.target.value)}
+                    className={INPUT_CLS}
+                  />
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>统一收卷截止时间（可选）</label>
+                  <input
+                    type="datetime-local"
+                    value={endsAtInput}
+                    onChange={(e) => setEndsAtInput(e.target.value)}
+                    className={INPUT_CLS}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-4 text-xs text-slate-700 sm:col-span-2">
+                  <label className="flex items-center gap-1.5 font-semibold text-rose-700">
+                    <input
+                      type="checkbox"
+                      checked={blockEmulator}
+                      onChange={(e) => setBlockEmulator(e.target.checked)}
+                    />
+                    禁止虚拟机 / 模拟器环境参考
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={strictAntiCheat}
+                      onChange={(e) => setStrictAntiCheat(e.target.checked)}
+                    />
+                    严格防小窗 / 分屏 / 失焦监测
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={autoSubmitOnCheat}
+                      onChange={(e) => setAutoSubmitOnCheat(e.target.checked)}
+                    />
+                    违规超限自动交卷
+                  </label>
+                </div>
+              </div>
 
           {createError && <Alert tone="error">{createError}</Alert>}
 
@@ -885,6 +1049,62 @@ export const ExamsPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <Modal
+        open={Boolean(qrModalExam)}
+        onClose={() => setQrModalExam(null)}
+        title={`扫码参试 · ${qrModalExam?.title || ''}`}
+      >
+        {qrModalExam && (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto inline-block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <img
+                src={qrModalExam.qrDataUrl}
+                alt="考场二维码"
+                className="mx-auto h-56 w-56 rounded-lg object-contain"
+              />
+              <div className="mt-2 font-mono text-sm font-bold tracking-wider text-brand-700">
+                考场分享码：{qrModalExam.shareCode}
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              使用微信扫一扫、手机浏览器或 PrismQ App 扫码即可直达考场。
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button
+                variant="secondary"
+                icon={qrCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                onClick={async () => {
+                  const text = `【PrismQ 棱题在线考试】${qrModalExam.title}\n分享码：${qrModalExam.shareCode}\n链接：${qrModalExam.shareUrl}`;
+                  try {
+                    await navigator.clipboard.writeText(text);
+                    setQrCopied(true);
+                    setTimeout(() => setQrCopied(false), 1800);
+                  } catch {
+                    window.prompt('复制分享给微信好友：', text);
+                  }
+                }}
+              >
+                {qrCopied ? '已复制微信分享文案' : '复制微信分享文案'}
+              </Button>
+              <a
+                href={qrModalExam.qrDataUrl}
+                download={`PrismQ_考场_${qrModalExam.shareCode}.png`}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-4 text-xs font-semibold text-white transition hover:bg-brand-700"
+              >
+                <Download className="h-3.5 w-3.5" /> 保存二维码图片
+              </a>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <SelfTestModal
+        open={showSelfTest}
+        onClose={() => setShowSelfTest(false)}
+        initialBankId={initialSelfTestBank}
+        banks={banks}
+      />
     </div>
   );
 };

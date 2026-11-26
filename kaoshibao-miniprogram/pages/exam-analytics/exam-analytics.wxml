@@ -1,0 +1,123 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap">
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在统计考情</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">无法查看考情</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="retry">重试</button>
+    </view>
+
+    <block wx:else>
+        <!-- 考场头部 -->
+        <view class="card hero-box">
+            <view class="between">
+                <view class="flex1">
+                    <text class="hero-name">{{exam.title}}</text>
+                    <text class="hero-sub">分享码 {{exam.shareCode}} · 及格 {{exam.passScore}}/{{exam.totalScore}} 分</text>
+                </view>
+                <text class="tag {{exam.status === 'active' ? 'tag-success' : 'tag-gray'}}">{{exam.status === 'active' ? '进行中' : '已结束'}}</text>
+            </view>
+
+            <view class="kpi-grid">
+                <view class="kpi-cell">
+                    <text class="kpi-val">{{summary.participantCount}}</text>
+                    <text class="kpi-lbl">已交卷</text>
+                </view>
+                <view class="kpi-cell">
+                    <text class="kpi-val kpi-live">{{summary.inProgressCount}}</text>
+                    <text class="kpi-lbl">在考人数</text>
+                </view>
+                <view class="kpi-cell">
+                    <text class="kpi-val">{{summary.avgScore}}</text>
+                    <text class="kpi-lbl">平均分</text>
+                </view>
+                <view class="kpi-cell">
+                    <text class="kpi-val kpi-brand">{{summary.avgAccuracy}}%</text>
+                    <text class="kpi-lbl">平均正确率</text>
+                </view>
+            </view>
+
+            <button
+                wx:if="{{exam.status === 'active'}}"
+                class="btn terminate-btn mt24"
+                bindtap="confirmTerminate"
+                disabled="{{terminating}}"
+            >{{terminating ? '正在终结…' : '主动终结考试并统一收卷'}}</button>
+        </view>
+
+        <!-- 在考考生实时状态 -->
+        <view wx:if="{{activeSessions.length > 0}}" class="section-head">
+            <text class="title-md">实时监考 · 在考考生 ({{activeSessions.length}})</text>
+        </view>
+        <view class="card session-card" wx:for="{{activeSessions}}" wx:key="id">
+            <view class="between">
+                <text class="person-name">{{item.participantName || '考生'}}</text>
+                <text class="session-progress">已答 {{item.answeredCount}} 题 · 切屏 {{item.tabSwitchCount}} 次</text>
+            </view>
+            <view class="risk-row" wx:if="{{item.riskLabels.length > 0}}">
+                <text class="risk-tag" wx:for="{{item.riskLabels}}" wx:for-item="rl" wx:key="*this">{{rl}}</text>
+            </view>
+        </view>
+
+        <!-- 考生成绩单 -->
+        <view class="section-head">
+            <text class="title-md">考生成绩与正确率 ({{submissions.length}})</text>
+        </view>
+        <view wx:if="{{submissions.length === 0}}" class="card empty-box">
+            <text class="state-desc">暂无交卷记录</text>
+        </view>
+        <view
+            class="card sub-card"
+            wx:for="{{submissions}}"
+            wx:key="id"
+            data-id="{{item.id}}"
+            bindtap="openSubmissionReport"
+        >
+            <view class="between">
+                <view class="flex1">
+                    <view class="row">
+                        <text class="person-name">{{item.participantName || '匿名考生'}}</text>
+                        <text wx:if="{{item.terminatedByCreator}}" class="risk-tag ml8">被终结</text>
+                    </view>
+                    <text class="sub-meta">正确率 {{item.accuracy}}% · {{item.correctCount}}/{{item.totalQuestions}} · 用时 {{item.durationText}} · 切屏 {{item.tabSwitchCount}} 次</text>
+                </view>
+                <view class="sub-right">
+                    <text class="sub-score {{item.isPassed ? 'score-ok' : 'score-bad'}}">{{item.score}}</text>
+                    <text class="sub-status">{{item.isPassed ? '通过' : '未通过'}}</text>
+                </view>
+            </view>
+            <view class="risk-row" wx:if="{{item.riskLabels.length > 0}}">
+                <text class="risk-tag" wx:for="{{item.riskLabels}}" wx:for-item="rl" wx:key="*this">{{rl}}</text>
+            </view>
+        </view>
+
+        <!-- 逐题正确率 -->
+        <view wx:if="{{questionStats.length > 0}}" class="section-head">
+            <text class="title-md">逐题正确率统计</text>
+        </view>
+        <view class="card qstat-card" wx:for="{{questionStats}}" wx:key="questionId">
+            <view class="between">
+                <text class="qstat-no">第 {{item.no}} 题</text>
+                <text class="qstat-rate">{{item.correctRate}}%</text>
+            </view>
+            <text class="qstat-stem">{{item.stem}}</text>
+            <view class="progress-track mt12">
+                <view class="progress-fill" style="width: {{item.correctRate}}%"></view>
+            </view>
+        </view>
+
+        <view style="padding:18rpx 8rpx 28rpx;text-align:center;">
+            <text style="font-size:21rpx;color:#94A3B8;line-height:1.5;">提示：如需考场入场口令设置、访客开关或主观简答题人工复核调分，请访问网页端操作。</text>
+        </view>
+    </block>
+</view>
+</block>

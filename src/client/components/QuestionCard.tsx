@@ -20,6 +20,7 @@ import {
   type QuestionOption,
 } from '../../shared/types.js';
 import { apiFetch } from '../lib/api';
+import { RichCodeText } from './RichCodeText';
 import { Alert, Badge, Button, Card, INPUT_CLS, TEXTAREA_CLS } from './ui';
 
 const renderDifficultyAndStarBadges = (q: QuestionItem) => {
@@ -459,15 +460,15 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
         </div>
       </div>
 
-      {/* 考试宝标志性：行内蓝底题型标签 + 题干文本 */}
-      <div className={`mb-5 whitespace-pre-wrap font-medium text-[#303133] ${STEM_SIZE_CLASSES[fontSize]}`}>
+      {/* 棱题 · PrismQ：行内蓝底题型标签 + 题干文本 */}
+      <div className={`mb-5 font-medium text-[#303133] ${STEM_SIZE_CLASSES[fontSize]}`}>
         <span className="mr-2 inline-block -translate-y-0.5 rounded-[4px] bg-brand-600 px-2 py-0.5 align-middle text-xs font-semibold text-white">
           {QUESTION_TYPE_LABELS[question.type]}
         </span>
-        <span className="align-middle">{question.stem}</span>
+        <RichCodeText text={question.stem} inline className="align-middle" />
       </div>
 
-      {/* 考试宝标志性：圆形单选 / 方角多选指示器 + A、选项正文 */}
+      {/* 棱题 · PrismQ：圆形单选 / 方角多选指示器 + A、选项正文 */}
       {renderedOptions.length > 0 && (
         <div className="space-y-2.5">
           {renderedOptions.map((opt) => {
@@ -513,7 +514,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                 </span>
                 <span className={`flex-1 ${OPT_SIZE_CLASSES[fontSize]}`}>
                   <span className="mr-1 font-semibold">{opt.displayKey}、</span>
-                  {opt.content}
+                  <RichCodeText text={opt.content} inline />
                 </span>
                 {showReveal && isCorrectOpt && (
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
@@ -693,9 +694,16 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
 
           <div>
             <div className="mb-1 text-xs font-bold text-[#606266]">试题解析</div>
-            <p className={`whitespace-pre-wrap text-[#303133] ${OPT_SIZE_CLASSES[fontSize]}`}>
-              {explanationText || '暂无文字解析，可点击下方「AI 深度讲题」自动生成深度剖析。'}
-            </p>
+            {explanationText ? (
+              <RichCodeText
+                text={explanationText}
+                className={`text-[#303133] ${OPT_SIZE_CLASSES[fontSize]}`}
+              />
+            ) : (
+              <p className={`whitespace-pre-wrap text-[#303133] ${OPT_SIZE_CLASSES[fontSize]}`}>
+                暂无文字解析，可点击下方「AI 深度讲题」自动生成深度剖析。
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-dashed border-[#DCDFE6] pt-3">
@@ -950,11 +958,11 @@ export const QuestionPreviewCard: React.FC<QuestionPreviewCardProps> = ({
         </div>
       </div>
 
-      <div className={`mb-5 whitespace-pre-wrap font-medium text-[#1E293B] ${STEM_SIZE_CLASSES[fontSize]}`}>
+      <div className={`mb-5 font-medium text-[#1E293B] ${STEM_SIZE_CLASSES[fontSize]}`}>
         <span className="mr-2 inline-block -translate-y-0.5 rounded-[4px] bg-brand-600 px-2 py-0.5 align-middle text-xs font-semibold text-white">
           {QUESTION_TYPE_LABELS[question.type]}
         </span>
-        <span className="align-middle">{question.stem}</span>
+        <RichCodeText text={question.stem} inline className="align-middle" />
       </div>
 
       {renderedOptions.length > 0 && (
@@ -996,7 +1004,7 @@ export const QuestionPreviewCard: React.FC<QuestionPreviewCardProps> = ({
                 </span>
                 <span className={`flex-1 ${OPT_SIZE_CLASSES[fontSize]}`}>
                   <span className="mr-1 font-semibold">{opt.displayKey}、</span>
-                  {opt.content}
+                  <RichCodeText text={opt.content} inline />
                 </span>
                 {isCorrectOpt && (
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
@@ -1095,9 +1103,16 @@ export const QuestionPreviewCard: React.FC<QuestionPreviewCardProps> = ({
           </div>
           <div>
             <div className="mb-1 text-xs font-bold text-[#606266]">试题解析</div>
-            <p className={`whitespace-pre-wrap text-[#303133] ${OPT_SIZE_CLASSES[fontSize]}`}>
-              {question.explanation || '暂无文字解析，可点击下方「AI 深度讲题」自动生成深度剖析。'}
-            </p>
+            {question.explanation ? (
+              <RichCodeText
+                text={question.explanation}
+                className={`text-[#303133] ${OPT_SIZE_CLASSES[fontSize]}`}
+              />
+            ) : (
+              <p className={`whitespace-pre-wrap text-[#303133] ${OPT_SIZE_CLASSES[fontSize]}`}>
+                暂无文字解析，可点击下方「AI 深度讲题」自动生成深度剖析。
+              </p>
+            )}
           </div>
         </div>
       )}

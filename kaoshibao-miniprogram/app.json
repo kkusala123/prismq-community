@@ -1,0 +1,64 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/banks/banks",
+    "pages/mistakes/mistakes",
+    "pages/exams/exams",
+    "pages/profile/profile",
+    "pages/auth/auth",
+    "pages/bank-detail/bank-detail",
+    "pages/practice/practice",
+    "pages/exam-take/exam-take",
+    "pages/exam-analytics/exam-analytics",
+    "pages/report/report",
+    "pages/bank-share/bank-share"
+  ],
+  "window": {
+    "navigationBarTitleText": "棱题",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F2F2F7",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#8E8E93",
+    "selectedColor": "#007AFF",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "assets/tabbar/home.png",
+        "selectedIconPath": "assets/tabbar/home-active.png"
+      },
+      {
+        "pagePath": "pages/banks/banks",
+        "text": "题库",
+        "iconPath": "assets/tabbar/banks.png",
+        "selectedIconPath": "assets/tabbar/banks-active.png"
+      },
+      {
+        "pagePath": "pages/mistakes/mistakes",
+        "text": "错题",
+        "iconPath": "assets/tabbar/mistakes.png",
+        "selectedIconPath": "assets/tabbar/mistakes-active.png"
+      },
+      {
+        "pagePath": "pages/exams/exams",
+        "text": "考试",
+        "iconPath": "assets/tabbar/exams.png",
+        "selectedIconPath": "assets/tabbar/exams-active.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "assets/tabbar/profile.png",
+        "selectedIconPath": "assets/tabbar/profile-active.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

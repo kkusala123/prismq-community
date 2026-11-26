@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "题库中心",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "usingComponents": {
+    "login-panel": "../../components/login-panel/login-panel"
+  }
+}

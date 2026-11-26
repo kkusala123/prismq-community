@@ -120,7 +120,8 @@ export function createAdminRouter(db: DbClient): Router {
         db.query<Record<string, unknown>>(
           `SELECT
              COALESCE(SUM(answered_count), 0) AS total_answered,
-             COALESCE(SUM(correct_count), 0) AS total_correct
+             COALESCE(SUM(correct_count), 0) AS total_correct,
+             COALESCE(SUM(wrong_count), 0) AS total_wrong
            FROM user_question_records`
         ),
         db.query<Record<string, unknown>>(
@@ -166,9 +167,12 @@ export function createAdminRouter(db: DbClient): Router {
       const aiRow = aiRes.rows[0] || {};
       const usRow = usageRes.rows[0] || {};
 
-      const totalAnswered = Number(lRow.total_answered ?? 0);
       const totalCorrect = Number(lRow.total_correct ?? 0);
-      const accuracyPercent = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
+      const totalWrong = Number(lRow.total_wrong ?? 0);
+      const totalAttempts = totalCorrect + totalWrong;
+      const totalAnswered = Math.max(Number(lRow.total_answered ?? 0), totalAttempts);
+      const accuracyPercent =
+        totalAttempts > 0 ? Math.min(100, Math.round((totalCorrect / totalAttempts) * 100)) : 0;
 
       const trendMap = new Map<string, AdminUsageDailyPoint>();
       for (const r of trendRes.rows) {

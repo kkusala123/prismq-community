@@ -1,0 +1,197 @@
+.auth-page {
+    min-height: 100vh;
+    padding: 72rpx 44rpx 48rpx;
+    background: linear-gradient(180deg, #F2F5FA 0%, #F7F8FA 42%, #F7F8FA 100%);
+}
+
+.brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 52rpx;
+}
+
+.logo {
+    display: flex;
+    width: 108rpx;
+    height: 108rpx;
+    align-items: center;
+    justify-content: center;
+    border-radius: 28rpx;
+    background: linear-gradient(140deg, #3B6AB8 0%, #2554A8 100%);
+    box-shadow: 0 12rpx 32rpx rgba(37, 84, 168, 0.32);
+    color: #ffffff;
+    font-size: 52rpx;
+    font-weight: 700;
+}
+
+.brand-line {
+    display: flex;
+    align-items: center;
+    margin-top: 24rpx;
+}
+
+.brand-name {
+    font-size: 44rpx;
+    font-weight: 800;
+    letter-spacing: -1rpx;
+    color: #1E293B;
+}
+
+.brand-badge {
+    margin-left: 10rpx;
+    padding: 2rpx 12rpx;
+    border-radius: 8rpx;
+    background: #2554A8;
+    color: #ffffff;
+    font-size: 22rpx;
+    font-weight: 700;
+}
+
+.brand-desc {
+    margin-top: 12rpx;
+    color: #475569;
+    font-size: 25rpx;
+}
+
+.panel {
+    padding: 36rpx 32rpx 40rpx;
+    border-radius: 24rpx;
+    background: #ffffff;
+    box-shadow: 0 8rpx 32rpx rgba(37, 84, 168, 0.08);
+}
+
+.tabs {
+    display: flex;
+    margin-bottom: 32rpx;
+    border-bottom: 2rpx solid #F0F2F5;
+}
+
+.tab {
+    position: relative;
+    padding: 0 8rpx 20rpx;
+    margin-right: 44rpx;
+    color: #475569;
+    font-size: 30rpx;
+    font-weight: 600;
+}
+
+.tab-active {
+    color: #2554A8;
+}
+
+.tab-active::after {
+    position: absolute;
+    right: 8rpx;
+    bottom: -2rpx;
+    left: 8rpx;
+    height: 6rpx;
+    border-radius: 6rpx;
+    background: #2554A8;
+    content: '';
+}
+
+.field {
+    margin-bottom: 26rpx;
+}
+
+.label {
+    display: block;
+    margin-bottom: 12rpx;
+    color: #1E293B;
+    font-size: 26rpx;
+    font-weight: 600;
+}
+
+.input {
+    height: 92rpx;
+    padding: 0 24rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 14rpx;
+    background: #FAFBFC;
+    font-size: 28rpx;
+    color: #1E293B;
+}
+
+.ph {
+    color: #CBD5E1;
+}
+
+.error-text {
+    margin-bottom: 20rpx;
+    padding: 18rpx 22rpx;
+    border-radius: 12rpx;
+    background: #FEF0F0;
+    color: #F56C6C;
+    font-size: 24rpx;
+    line-height: 1.5;
+}
+
+.submit-btn {
+    margin-top: 12rpx;
+}
+
+.server-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 32rpx;
+    padding: 22rpx 26rpx;
+    border-radius: 16rpx;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.server-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.server-link {
+    flex-shrink: 0;
+    margin-left: 20rpx;
+    color: #2554A8;
+    font-size: 25rpx;
+    font-weight: 600;
+}
+
+.tips {
+    margin-top: 36rpx;
+    padding: 0 8rpx;
+}
+
+.tips-text {
+    display: block;
+    color: #64748B;
+    font-size: 22rpx;
+    line-height: 1.8;
+}
+
+.signed-title {
+    display: block;
+    margin-bottom: 20rpx;
+    color: #2554A8;
+    font-size: 30rpx;
+    font-weight: 700;
+}
+
+.signed-name {
+    display: block;
+    color: #1E293B;
+    font-size: 40rpx;
+    font-weight: 700;
+}
+
+.signed-email {
+    display: block;
+    margin-top: 8rpx;
+    color: #475569;
+    font-size: 26rpx;
+}
+
+.signed-desc {
+    display: block;
+    margin-top: 24rpx;
+    color: #475569;
+    font-size: 26rpx;
+    line-height: 1.8;
+}

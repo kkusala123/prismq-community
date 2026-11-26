@@ -254,6 +254,22 @@ export interface ExamQuestionSnapshot {
   tags?: string[];
 }
 
+export interface CheatEventItem {
+  type: string;
+  detail: string;
+  timestamp: string;
+}
+
+export interface ExamDeviceInfo {
+  platform?: string;
+  deviceLabel?: string;
+  isEmulator?: boolean;
+  isDebugged?: boolean;
+  isVirtualSpace?: boolean;
+  isMultiWindow?: boolean;
+  reasons?: string[];
+}
+
 export interface ExamSummary {
   id: string;
   creatorId: string;
@@ -267,17 +283,25 @@ export interface ExamSummary {
   hasPassword: boolean;
   allowGuest: boolean;
   durationMinutes: number;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  endedAt?: string | null;
   totalScore: number;
   passScore: number;
   shuffleQuestions: boolean;
   shuffleOptions: boolean;
   maxTabSwitches: number;
   maxAttempts: number;
+  blockEmulator?: boolean;
+  strictAntiCheat?: boolean;
+  autoSubmitOnCheat?: boolean;
   status: 'active' | 'closed';
   questionCount: number;
   assemblyMeta?: ExamAssemblyMeta;
   submissionCount?: number;
+  inProgressCount?: number;
   avgScore?: number;
+  avgAccuracy?: number;
   passRate?: number;
   createdAt: string;
 }
@@ -308,10 +332,31 @@ export interface ExamSubmissionItem {
   isPassed: boolean;
   correctCount: number;
   totalQuestions: number;
+  accuracy?: number;
   durationSeconds: number;
   tabSwitchCount: number;
+  cheatEvents?: CheatEventItem[];
+  deviceInfo?: ExamDeviceInfo;
+  riskFlags?: string[];
+  terminatedByCreator?: boolean;
   startedAt: string;
   submittedAt: string;
+}
+
+export interface ActiveExamSessionItem {
+  id: string;
+  examId: string;
+  userId: string | null;
+  participantName: string;
+  participantIdentifier: string;
+  status: 'in_progress' | 'submitted' | 'terminated';
+  answeredCount: number;
+  tabSwitchCount: number;
+  cheatEvents: CheatEventItem[];
+  deviceInfo: ExamDeviceInfo;
+  riskFlags: string[];
+  startedAt: string;
+  lastHeartbeatAt: string;
 }
 
 export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {

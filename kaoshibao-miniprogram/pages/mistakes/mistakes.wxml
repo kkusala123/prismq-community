@@ -1,0 +1,65 @@
+<view wx:if="{{authState === 'checking'}}" class="auth-state">
+  <text class="auth-state-text">正在检查登录状态…</text>
+</view>
+<login-panel wx:elif="{{authState === 'signed-out'}}" bind:signedin="onSignedIn" />
+<block wx:else>
+<view class="page-wrap">
+    <view class="tab-bar">
+        <view class="tab-item {{tab === 'mistakes' ? 'tab-item-active' : ''}}" data-tab="mistakes" bindtap="switchTab">
+            错题本<text class="tab-count">{{counts.mistakes}}</text>
+        </view>
+        <view class="tab-item {{tab === 'favorites' ? 'tab-item-active' : ''}}" data-tab="favorites" bindtap="switchTab">
+            收藏夹<text class="tab-count">{{counts.favorites}}</text>
+        </view>
+    </view>
+
+    <view wx:if="{{loading}}" class="state">
+        <view class="spinner"></view>
+        <text class="state-title">正在加载</text>
+    </view>
+
+    <view wx:elif="{{errorText}}" class="state">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{errorText}}</text>
+        <button class="btn btn-primary btn-sm mt24" data-mode="{{tab}}" bindtap="retry">直接开始练习</button>
+    </view>
+
+    <view wx:elif="{{list.length === 0}}" class="state">
+        <text class="state-icon">○</text>
+        <text class="state-title">{{tab === 'mistakes' ? '错题本是空的' : '还没有收藏题目'}}</text>
+        <text class="state-desc">{{tab === 'mistakes' ? '答错的题会自动收录到这里，连续答对 3 次自动移出' : '刷题时点击右上角「收藏」，题目就会出现在这里'}}</text>
+        <button class="btn btn-primary btn-sm mt24" bindtap="goBanks">去题库刷题</button>
+    </view>
+
+    <block wx:else>
+        <view class="list-bar">
+            <view class="flex1">
+                <text class="sub">{{tab === 'mistakes' ? '共 ' + counts.mistakes + ' 道待巩固' : '共 ' + counts.favorites + ' 道收藏'}}</text>
+            </view>
+            <button class="btn btn-primary btn-sm" data-mode="{{tab}}" bindtap="retry">
+                {{tab === 'mistakes' ? '错题重练' : '收藏练习'}}
+            </button>
+        </view>
+
+        <view class="card q-card" wx:for="{{list}}" wx:key="id" data-id="{{item.id}}" bindtap="openQuestion">
+            <view class="q-top">
+                <text class="tag tag-brand">{{item.typeLabel}}</text>
+                <text wx:if="{{tab === 'mistakes' && item.wrongCount > 0}}" class="tag tag-danger q-tag-gap">错 {{item.wrongCount}} 次</text>
+                <text wx:if="{{tab === 'mistakes' && item.consecutive > 0}}" class="tag tag-success q-tag-gap">连对 {{item.consecutive}}</text>
+                <text wx:if="{{item.chapterTitle}}" class="tag tag-gray q-tag-gap">{{item.chapterTitle}}</text>
+            </view>
+            <text class="q-stem">{{item.stemBrief}}</text>
+            <view class="q-foot">
+                <text class="q-hint">点击进入重练</text>
+                <text class="q-arrow">›</text>
+            </view>
+        </view>
+
+        <view wx:if="{{isDemo}}" class="demo-tip">
+            <text class="muted">演示模式下，错题与收藏记录保存在本机</text>
+        </view>
+    </block>
+</view>
+
+</block>

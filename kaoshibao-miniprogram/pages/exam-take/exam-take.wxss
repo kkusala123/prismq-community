@@ -1,0 +1,275 @@
+.exam-page {
+    min-height: 100vh;
+    padding: 20rpx 28rpx 220rpx;
+    background: #F7F8FA;
+}
+
+.exam-header {
+    display: flex;
+    align-items: center;
+    padding: 24rpx 26rpx;
+    border-radius: 16rpx;
+    background: #ffffff;
+}
+
+.header-left {
+    flex: 1;
+    min-width: 0;
+}
+
+.exam-title {
+    display: block;
+    color: #1E293B;
+    font-size: 29rpx;
+    font-weight: 700;
+}
+
+.exam-sub {
+    display: block;
+    margin-top: 6rpx;
+    color: #64748B;
+    font-size: 22rpx;
+}
+
+.timer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    margin-left: 18rpx;
+    padding: 12rpx 20rpx;
+    border-radius: 12rpx;
+    background: #F2F5FA;
+}
+
+.timer-warn {
+    background: #FEF0F0;
+}
+
+.timer-icon {
+    color: #2554A8;
+    font-size: 26rpx;
+}
+
+.timer-warn .timer-icon {
+    color: #F56C6C;
+}
+
+.timer-text {
+    margin-left: 8rpx;
+    color: #2554A8;
+    font-size: 28rpx;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.timer-warn .timer-text {
+    color: #F56C6C;
+}
+
+.question-card {
+    margin-top: 20rpx;
+    padding: 30rpx 28rpx 34rpx;
+}
+
+.q-head {
+    display: flex;
+    align-items: center;
+}
+
+.q-tip {
+    margin-left: 8rpx;
+    color: #64748B;
+    font-size: 22rpx;
+}
+
+.q-stem {
+    display: block;
+    margin-top: 22rpx;
+    color: #1E293B;
+    font-size: 31rpx;
+    font-weight: 600;
+    line-height: 1.7;
+}
+
+.options {
+    margin-top: 26rpx;
+}
+
+.option {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 18rpx;
+    padding: 24rpx 22rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 16rpx;
+    background: #FAFBFC;
+}
+
+.opt-selected {
+    border-color: #2554A8;
+    background: #F2F5FA;
+}
+
+.opt-key {
+    display: flex;
+    width: 52rpx;
+    height: 52rpx;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: #F0F2F5;
+    color: #475569;
+    font-size: 25rpx;
+    font-weight: 700;
+}
+
+.opt-key-selected {
+    background: #2554A8;
+    color: #ffffff;
+}
+
+.opt-content {
+    flex: 1;
+    margin-left: 18rpx;
+    padding-top: 6rpx;
+    color: #1E293B;
+    font-size: 27rpx;
+    line-height: 1.6;
+}
+
+.fill-area {
+    margin-top: 26rpx;
+}
+
+.fill-input {
+    height: 92rpx;
+    padding: 0 24rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 14rpx;
+    background: #FAFBFC;
+    color: #1E293B;
+    font-size: 28rpx;
+}
+
+.short-input {
+    width: 100%;
+    height: 240rpx;
+    padding: 22rpx 24rpx;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 14rpx;
+    background: #FAFBFC;
+    color: #1E293B;
+    font-size: 27rpx;
+    line-height: 1.6;
+}
+
+.switch-tip {
+    margin-top: 18rpx;
+    padding: 16rpx 22rpx;
+    border-radius: 12rpx;
+    background: #FDF6EC;
+}
+
+.switch-text {
+    color: #B88230;
+    font-size: 22rpx;
+}
+
+.exam-bar {
+    display: flex;
+    align-items: center;
+}
+
+.bar-btn {
+    flex: 1;
+    height: 84rpx;
+    font-size: 27rpx;
+}
+
+.bar-btn + .bar-btn {
+    margin-left: 16rpx;
+}
+
+/* 答题卡 */
+.mask {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-end;
+    background: rgba(0, 0, 0, 0.42);
+}
+
+.card-panel {
+    width: 100%;
+    max-height: 78vh;
+    padding: 34rpx 32rpx calc(34rpx + env(safe-area-inset-bottom));
+    border-radius: 28rpx 28rpx 0 0;
+    background: #ffffff;
+}
+
+.card-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.card-close {
+    padding: 8rpx 12rpx;
+    color: #64748B;
+    font-size: 30rpx;
+}
+
+.card-summary {
+    margin-top: 18rpx;
+}
+
+.summary-text {
+    color: #475569;
+    font-size: 23rpx;
+}
+
+.card-grid-scroll {
+    max-height: 46vh;
+    margin-top: 22rpx;
+}
+
+.card-grid {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.card-cell {
+    display: flex;
+    width: 76rpx;
+    height: 76rpx;
+    align-items: center;
+    justify-content: center;
+    margin: 0 16rpx 16rpx 0;
+    border: 2rpx solid #E4E7ED;
+    border-radius: 14rpx;
+    background: #FAFBFC;
+    color: #475569;
+    font-size: 26rpx;
+    font-weight: 600;
+}
+
+.cell-done {
+    border-color: #2554A8;
+    background: #F2F5FA;
+    color: #2554A8;
+}
+
+.cell-current {
+    border-color: #2554A8;
+    background: #2554A8;
+    color: #ffffff;
+}
+
+.ph {
+    color: #CBD5E1;
+}

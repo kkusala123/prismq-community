@@ -136,7 +136,7 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* 顶部两栏考试宝门户 Hero 区：左栏快捷题库导航 + 右栏淡蓝渐变学习总览 */}
+      {/* 顶部两栏棱题 · PrismQ 门户 Hero 区：左栏快捷题库导航 + 右栏学习总览 */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
         {/* 左侧快捷题库分类卡 */}
         <Card padding="sm" className="flex flex-col justify-between lg:w-[272px] lg:shrink-0">
