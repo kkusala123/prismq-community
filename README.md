@@ -48,6 +48,10 @@ docker compose ps
 ## Android 与微信小程序自建配置
 
 - **Android 客户端**：构建前在 `android/gradle.properties` 或命令参数中传入 `-PPRISMQ_SERVER_URL=https://你的域名` 即可将端点编译并混淆加密进客户端。
+- **GitHub Actions 自动构建 APK 并发布到 Release**：仓库已内置 [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml)，每次推送至 `main` 分支或推送 `v*` 标签都会自动运行单元测试、编译 Release APK、生成 `.sha256` 校验文件并上传更新到 GitHub Releases。
+  - 可在仓库 **Settings -> Secrets and variables -> Actions** 中配置以下可选项：
+    - Secrets：`ANDROID_KEYSTORE_BASE64`（`.jks` 密钥库 Base64 编码）、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`（不配置时自动回退调试签名）。
+    - Variable：`PRISMQ_SERVER_URL`（构建时自动注入的自定义服务端地址）。
 - **微信小程序**：修改 `kaoshibao-miniprogram/project.config.json` 中的 `appid` 及 `kaoshibao-miniprogram/utils/config.js` 中的 `DEFAULT_BASE_URL` 后用微信开发者工具上传。
 
 ---

@@ -1,0 +1,162 @@
+name: Android Release APK
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: '可选：覆盖内置服务器地址（留空则使用默认配置）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build & Publish Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Read Android version metadata
+        id: meta
+        shell: bash
+        run: |
+          GRADLE_FILE="android/app/build.gradle.kts"
+          VERSION_NAME=$(grep -E '^\s*versionName\s*=' "$GRADLE_FILE" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -E '^\s*versionCode\s*=' "$GRADLE_FILE" | head -n1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+
+          if [[ -z "$VERSION_NAME" || -z "$VERSION_CODE" ]]; then
+            echo "无法从 $GRADLE_FILE 解析 versionName 或 versionCode" >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_NAME="${GITHUB_REF_NAME}"
+          else
+            TAG_NAME="v${VERSION_NAME}"
+          fi
+
+          APK_NAME="prismq-${TAG_NAME}.apk"
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          {
+            echo "version_name=${VERSION_NAME}"
+            echo "version_code=${VERSION_CODE}"
+            echo "tag_name=${TAG_NAME}"
+            echo "apk_name=${APK_NAME}"
+            echo "short_sha=${SHORT_SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure optional Release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          if [[ -n "$KEYSTORE_B64" ]]; then
+            echo "检测到 Release 签名密钥，正在写入签名配置..."
+            echo "$KEYSTORE_B64" | base64 --decode > android/prismq-release.jks
+            cat > android/keystore.properties <<EOF
+          storeFile=prismq-release.jks
+          storePassword=${KEYSTORE_PASS}
+          keyAlias=${KEY_ALIAS:-prismq_release}
+          keyPassword=${KEY_PASS:-$KEYSTORE_PASS}
+          EOF
+          else
+            echo "未配置 ANDROID_KEYSTORE_BASE64，将使用 build.gradle.kts 默认回退签名。"
+          fi
+
+      - name: Run Android unit tests and build Release APK
+        env:
+          INPUT_SERVER_URL: ${{ inputs.server_url }}
+          VAR_SERVER_URL: ${{ vars.PRISMQ_SERVER_URL }}
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          cd android
+          CUSTOM_URL="${INPUT_SERVER_URL:-$VAR_SERVER_URL}"
+          if [[ -n "$CUSTOM_URL" ]]; then
+            ./gradlew testDebugUnitTest --no-daemon
+            ./gradlew assembleRelease "-PPRISMQ_SERVER_URL=${CUSTOM_URL}" --no-daemon
+          else
+            ./gradlew testDebugUnitTest assembleRelease --no-daemon
+          fi
+
+      - name: Prepare Release assets and checksum
+        env:
+          VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          TAG_NAME: ${{ steps.meta.outputs.tag_name }}
+          APK_NAME: ${{ steps.meta.outputs.apk_name }}
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        shell: bash
+        run: |
+          mkdir -p dist-release
+          APK_SRC="android/app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "$APK_SRC" ]]; then
+            echo "未找到构建产物: $APK_SRC" >&2
+            exit 1
+          fi
+
+          cp "$APK_SRC" "dist-release/${APK_NAME}"
+          (cd dist-release && sha256sum "${APK_NAME}" > "${APK_NAME}.sha256")
+          APK_SHA256=$(awk '{print $1}' "dist-release/${APK_NAME}.sha256")
+          APK_SIZE=$(wc -c < "dist-release/${APK_NAME}" | tr -d ' ')
+
+          cat > dist-release/RELEASE_NOTES.md <<EOF
+          ## PrismQ ${TAG_NAME}
+
+          - **versionName**: \`${VERSION_NAME}\`
+          - **versionCode**: \`${VERSION_CODE}\`
+          - **Commit**: \`${SHORT_SHA}\` (${GITHUB_REF_NAME})
+          - **APK Size**: \`${APK_SIZE}\` bytes
+          - **SHA-256**: \`${APK_SHA256}\`
+
+          ### Latest Commit
+          ${COMMIT_MSG:-Manual workflow dispatch build}
+          EOF
+
+      - name: Upload APK workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.apk_name }}
+          path: |
+            dist-release/${{ steps.meta.outputs.apk_name }}
+            dist-release/${{ steps.meta.outputs.apk_name }}.sha256
+          retention-days: 14
+
+      - name: Publish or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: PrismQ ${{ steps.meta.outputs.tag_name }}
+          body_path: dist-release/RELEASE_NOTES.md
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            dist-release/${{ steps.meta.outputs.apk_name }}
+            dist-release/${{ steps.meta.outputs.apk_name }}.sha256
